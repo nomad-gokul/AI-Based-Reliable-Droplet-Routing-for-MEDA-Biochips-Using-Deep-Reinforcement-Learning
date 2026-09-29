@@ -98,3 +98,7 @@ Observations:
 * PPO + small CNN agent (Stable-Baselines3) on this environment.
 * Ablation: agent with vs without the health channel (Liang vs Elfar formulation).
 * Curriculum learning over chip size and degradation level.
+
+## License
+
+MIT, see [`LICENSE`](LICENSE).

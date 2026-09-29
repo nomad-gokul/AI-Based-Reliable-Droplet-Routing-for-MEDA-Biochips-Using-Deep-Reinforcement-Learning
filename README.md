@@ -9,6 +9,8 @@ using deep reinforcement learning" (NSUT, supervisor Dr. Ankur Gupta).
 * Gokul Kumar
 * Mohammed Eshaan
 
+See [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
+
 Supervisor: Dr. Ankur Gupta, Department of Computer Science and Engineering, NSUT.
 The mid-semester report is in [`report/BTP_report_Final.pdf`](report/BTP_report_Final.pdf).
 

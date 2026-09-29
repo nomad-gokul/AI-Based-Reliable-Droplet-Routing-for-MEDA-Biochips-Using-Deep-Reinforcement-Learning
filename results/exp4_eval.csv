@@ -1,0 +1,5 @@
+method,success_rate,mean_steps_success
+A*,0.644,9.003105590062113
+Health-aware A*,0.788,8.789340101522843
+PPO (nohealth),0.684,9.137426900584796
+PPO (health),0.662,9.138972809667674

@@ -371,6 +371,10 @@ with probability = share of good electrodes under it, the same physics as the re
   <img src="results/blockage_sweep/blockage_steps_soft_30.png" width="49%" alt="Routing time vs blockage">
 </p>
 
+Number of successful tasks out of the same 300 tasks per level, within the deadline (left) and eventually (right):
+
+<p align="center"><img src="results/blockage_sweep/blockage_count_soft_30.png" width="100%" alt="Successful tasks per blockage level"></p>
+
 **With PPO** (12×12 chip; one PPO agent trained for 500k steps on chips with random 0–90% blockage,
 observing the blockage map). Deadline success:
 

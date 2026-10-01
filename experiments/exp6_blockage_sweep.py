@@ -24,7 +24,8 @@ path (the bioassay deadline). "Success (no deadline)" uses a 10x budget.
 
 Outputs in --out (file names end with the mode, chip size and options):
   blockage_results_*.csv, blockage_success_*.png,
-  blockage_success_nodeadline_*.png, blockage_steps_*.png, blockage_example_*.png
+  blockage_success_nodeadline_*.png, blockage_steps_*.png (routing time on the
+  tasks every method solved, so all methods are timed on the same tasks), blockage_example_*.png
 
   python experiments/exp6_blockage_sweep.py --mode soft
   python experiments/exp6_blockage_sweep.py --mode hard --worn
@@ -207,6 +208,11 @@ for li, b in enumerate(args.levels):
                 e = copy.deepcopy(env); e.max_steps = math.ceil(sl * L)
                 out[tag] = run_agent(e, model) if m == "PPO" else run_router(e, ROUTERS[m])
             res[m].append(out)
+    # tasks solved (no deadline) by every method: routing time is compared on this
+    # same fixed set, so a method is not penalised for also solving harder tasks
+    paired = np.all([[x["nodl"]["success"] for x in res[m]] for m in methods], axis=0)
+    st_p = np.array([[x["nodl"]["steps"] for x in res[m]] for m in methods])[:, paired]
+    sole_fastest = (st_p == st_p.min(axis=0)) & ((st_p == st_p.min(axis=0)).sum(axis=0) == 1)
     for m in methods:
         s = np.array([x["dl"]["success"] for x in res[m]])
         s2 = np.array([x["nodl"]["success"] for x in res[m]])
@@ -214,10 +220,16 @@ for li, b in enumerate(args.levels):
         rows.append({"blockage": b, "chip_health": 1 - b, "method": m, "mode": args.mode,
                      "success_deadline": s.mean(), "success_no_deadline": s2.mean(),
                      "mean_steps_success": st[s2].mean() if s2.any() else float("nan"),
+                     "mean_steps_paired": st[paired].mean() if paired.any() else float("nan"),
+                     "n_paired": int(paired.sum()),
+                     # share of those tasks on which this method alone is the fastest
+                     "fastest_share_paired": sole_fastest[methods.index(m)].mean() if paired.any() else float("nan"),
                      "reachable_tasks": np.mean([x["dl"].get("reachable", True) for x in res[m]]),
                      "n": len(s)})
         print(f"{b:>4.0%}  {m:<16} deadline {s.mean():.3f}  no-deadline {s2.mean():.3f}  "
-              f"steps {rows[-1]['mean_steps_success']:.1f}", flush=True)
+              f"steps {rows[-1]['mean_steps_success']:.1f}  "
+              f"paired steps {rows[-1]['mean_steps_paired']:.1f} (n={rows[-1]['n_paired']}, "
+              f"fastest on {rows[-1]['fastest_share_paired']:.0%})", flush=True)
 
 tag = f"{args.mode}_{args.size}" + ("_worn" if args.worn else "") + ("_ppo" if model else "")
 with open(os.path.join(args.out, f"blockage_results_{tag}.csv"), "w", newline="") as f:
@@ -229,15 +241,22 @@ title = (f"{args.size}x{args.size} chip, {args.mode} blockage{' + worn good cell
 for metric, ylab, fn in [
         ("success_deadline", f"Success rate (deadline {args.slack}x shortest path)", "success"),
         ("success_no_deadline", f"Success rate (budget {NO_DEADLINE:.0f}x)", "success_nodeadline"),
-        ("mean_steps_success", "Mean routing time of successful tasks (steps)", "steps")]:
+        ("mean_steps_paired", "Mean routing time on the same tasks (steps)", "steps")]:
     fig, ax = plt.subplots(figsize=(7, 4))
     for m, mk_ in zip(methods, "osd"):
         ax.plot(x, [r[metric] for r in rows if r["method"] == m], marker=mk_, label=m)
     ax.set_xlabel("Blocked electrodes (% of chip)"); ax.set_ylabel(ylab)
     ax.set_xticks(x)
     if metric.startswith("success"):
-        ax.set_ylim(-0.02, 1.05)
-    ax.grid(alpha=0.3); ax.legend(); ax.set_title(title, fontsize=9)
+        ax.set_ylim(-0.02, 1.05); ax.set_title(title, fontsize=9)
+    else:   # number of tasks every method solved, under each level
+        lo, hi = ax.get_ylim(); ax.set_ylim(lo - 0.12 * (hi - lo), hi)   # room for the n labels
+        npair = [r["n_paired"] for r in rows if r["method"] == methods[0]]
+        for xv, n_ in zip(x, npair):
+            ax.annotate(f"n={n_}", (xv, 0), xycoords=("data", "axes fraction"), xytext=(0, 4),
+                        textcoords="offset points", ha="center", fontsize=7, color="gray")
+        ax.set_title(title + "\nonly tasks solved by every method (n = tasks per level)", fontsize=9)
+    ax.grid(alpha=0.3); ax.legend()
     fig.tight_layout(); fig.savefig(os.path.join(args.out, f"blockage_{fn}_{tag}.png"), dpi=200)
     plt.close(fig)
 

@@ -235,7 +235,7 @@ for metric, ylab, fn in [
         ax.plot(x, [r[metric] for r in rows if r["method"] == m], marker=mk_, label=m)
     ax.set_xlabel("Blocked electrodes (% of chip)"); ax.set_ylabel(ylab)
     ax.set_xticks(x)
-    if "success" in metric:
+    if metric.startswith("success"):   # not mean_steps_success, which is in steps
         ax.set_ylim(-0.02, 1.05)
     ax.grid(alpha=0.3); ax.legend(); ax.set_title(title, fontsize=9)
     fig.tight_layout(); fig.savefig(os.path.join(args.out, f"blockage_{fn}_{tag}.png"), dpi=200)

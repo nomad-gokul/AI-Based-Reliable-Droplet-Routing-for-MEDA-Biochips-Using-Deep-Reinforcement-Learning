@@ -39,6 +39,18 @@ Netaji Subhas University of Technology (NSUT) · Supervisor: Dr. Ankur Gupta
 > They don't yet beat health-aware A\* (**79%**); closing that gap is the next phase
 > (see [Experiment 4](#experiment-4-first-ppo-agents)).
 
+> [!NOTE]
+> **New focus: performance vs blockage percentage.** Following our supervisor's feedback
+> (see [below](#supervisor-feedback-and-new-direction)), the project now measures every router
+> as 10% to 90% of the electrodes are blocked. Health-aware A\* stays ahead at every level:
+> at 40% blocked it meets the deadline on **62%** of tasks vs **31%** for plain A\*, and at
+> 80% blocked it still delivers **82%** of droplets (no deadline) vs **29%**.
+
+<p align="center">
+  <img src="results/blockage_sweep/blockage_success_soft_30.png" width="49%" alt="Success rate vs blockage percentage">
+  <img src="results/blockage_sweep/blockage_success_nodeadline_soft_30.png" width="49%" alt="Success rate vs blockage percentage, no deadline">
+</p>
+
 <p align="center">
   <img src="results/exp2_success.png" width="49%" alt="Success rate vs degradation level">
   <img src="results/exp3_lifetime.png" width="49%" alt="Chip lifetime">
@@ -48,15 +60,73 @@ Netaji Subhas University of Technology (NSUT) · Supervisor: Dr. Ankur Gupta
 
 ## Contents
 
-1. [The problem](#the-problem)
-2. [Our approach](#our-approach)
-3. [Repository layout](#repository-layout)
-4. [Getting started](#getting-started)
-5. [Results in detail](#results-in-detail)
-6. [Simulator details](#simulator-details)
-7. [Next steps](#next-steps)
-8. [Authors](#authors)
-9. [References and license](#references-and-license)
+1. [Supervisor feedback and new direction](#supervisor-feedback-and-new-direction)
+2. [The problem](#the-problem)
+3. [Our approach](#our-approach)
+4. [Repository layout](#repository-layout)
+5. [Getting started](#getting-started)
+6. [Results in detail](#results-in-detail)
+7. [Simulator details](#simulator-details)
+8. [Next steps](#next-steps)
+9. [Authors](#authors)
+10. [References and license](#references-and-license)
+
+---
+
+## Supervisor feedback and new direction
+
+After reviewing Experiments 1 to 4, Dr. Ankur Gupta raised three questions (September 2026).
+This section records each question, our answer, and how it changes the project.
+
+### 1. How is "health" defined?
+
+*Question:* is chip health the average of every electrode's health, or the number of good
+electrodes divided by all electrodes (good vs blocked)?
+
+*Answer:* in Experiments 1 to 4, health is a **continuous value per electrode** between 0 and 1,
+not a good/blocked label.
+
+- Every electrode starts at health 1.0. A fraction of electrodes is *degradable*: each gets a decay
+  factor in [0.6, 1.0], and every 50 actuations its health is multiplied by that factor
+  ([`medaroute/env.py`](medaroute/env.py), `_wear`). The other electrodes never degrade.
+- A move succeeds with probability = **mean health of the 3×3 electrodes under the droplet**.
+- The only chip-level number reported so far (Experiment 3) is the **mean health of all electrodes**.
+- The "10% / 30% / 50% / 70%" levels in Experiment 2 are the **fraction of degradable electrodes**,
+  not a blockage or health percentage.
+
+*Change:* we now also use the supervisor's definition. An electrode is either **good** (health 1)
+or **blocked** (health 0), and **chip health = good electrodes ÷ all electrodes = 1 − blockage**.
+With binary electrodes, the mean health and the good-electrode fraction are the same number.
+
+### 2. Focus on blockage percentage
+
+*Request:* show how health-aware A\* performs as the blockage goes 10%, 20%, 30%, … 90%.
+
+*Change:* the new [Experiment 6](#experiment-6-routing-vs-blockage-percentage) does exactly this
+for plain A\*, health-aware A\* and a PPO agent. **Blockage percentage is now the main axis of the project.**
+Health-aware A\* beats plain A\* at every blockage level, and PPO currently performs about like plain A\*.
+
+### 3. Why is mean chip health similar for A\* and health-aware A\* in the lifetime experiment?
+
+*Answer:* the router is working; the metric hides it (see
+[Experiment 3b](#experiment-3b-why-mean-health-hides-the-lifetime-gain)). Health-aware A\* does
+*less* total work and ends with *fewer* dead electrodes, but it spreads its wear over ~40% more
+electrodes. Wear is multiplicative and stops at zero: once A\* has worn out an electrode on its
+fixed straight corridors, using it again cannot lower the average further. Health-aware A\* instead
+wears many electrodes a little, so the chip-wide average comes out slightly lower (0.755 vs 0.79)
+even though the chip lasts ~65% longer. The average is further diluted by the electrodes that never
+degrade and the ones no route uses.
+
+*Change:* lifetime is now reported with metrics that reflect usability: **number of dead electrodes**,
+**mean health of the electrodes routes actually use**, and **success rate over time**.
+
+### Where the project goes from here
+
+1. Blockage percentage (10–90%) is the headline benchmark for every router.
+2. Lifetime results use dead-electrode count and used-electrode health instead of chip-wide mean health.
+3. **Next goal: make the health-aware PPO agent beat the PPO agent without health, and then health-aware A\*.**
+   Right now the agent that sees the health map does no better than the one that doesn't (Experiment 4).
+   See [Next steps](#next-steps).
 
 ---
 
@@ -105,7 +175,9 @@ A task **succeeds** if the droplet reaches its goal within a deadline of **1.5 �
 │   ├── exp1_visualize.py           one task: both routers' paths on a worn chip
 │   ├── exp2_degradation_levels.py  success rate / routing time vs degradation level
 │   ├── exp3_lifetime.py            success rate as one chip wears out over 3,000 tasks
-│   └── exp4_ppo.py                 PPO agents with vs without the health map
+│   ├── exp3_wear_analysis.py       how each router wears the chip (dead electrodes, used electrodes)
+│   ├── exp4_ppo.py                 PPO agents with vs without the health map
+│   └── exp6_blockage_sweep.py      A*, health-aware A* and PPO vs blockage 10–90%
 ├── results/                        figures and CSV files produced by the experiments
 ├── tests/                          pytest checks for the chip, its dynamics and the routers
 ├── run_experiments.ipynb           Google Colab notebook that runs everything
@@ -140,6 +212,11 @@ python -m pytest        # 20 tests, under a second
 | `python experiments/exp2_degradation_levels.py` | 500 chips × 5 degradation levels | ~15 s |
 | `python experiments/exp3_lifetime.py` | 10 chips × 3,000 tasks each | ~1 min |
 | `python experiments/exp4_ppo.py --timesteps 300000` | Trains and evaluates both PPO agents | ~12 min |
+| `python experiments/exp3_wear_analysis.py` | Re-runs Experiment 3 and measures wear per router | ~3 min |
+| `python experiments/exp6_blockage_sweep.py --mode soft` | A\* vs health-aware A\*, 10–90% blocked, 30×30 | ~3 min |
+| `python experiments/exp6_blockage_sweep.py --mode soft --worn` | Same, with the good electrodes also partly worn | ~3 min |
+| `python experiments/exp6_blockage_sweep.py --mode hard --worn` | Blocked electrodes are walls the droplet cannot cross | ~2 min |
+| `python experiments/exp6_blockage_sweep.py --size 12 --ppo --ppo_steps 500000` | Adds a PPO agent (12×12 chip) | ~20 min |
 
 Figures and CSV files are written to `results/`. Every script takes command-line options
 (chip size, degradation fraction, number of chips, deadline slack, …); run it with `--help` to list them.
@@ -213,6 +290,30 @@ reservoir/mixer sites, as a real bioassay would. Both routers get the same chips
 - Health-aware A\* still declines steadily: it reacts to current health but cannot plan for the wear its own routes will cause. **This is the main motivation for a learned (DRL) router.**
 - "Tasks before first failure" varies a lot between chips (one unlucky failure ends the count), so overall success is the more stable metric.
 
+### Experiment 3b: why mean health hides the lifetime gain
+
+`exp3_wear_analysis.py` re-runs Experiment 3 with the same chips and task sequences and records
+how each router wears the chip. Means over the 10 chips:
+
+| | A\* | Health-aware A\* |
+|---|:---:|:---:|
+| Overall success | 0.47 | **0.72** |
+| Tasks before first failure | 241 | **397** |
+| Total actuations (droplet steps) | 60,475 | **57,019** |
+| Electrodes used at least once | 472 | 659 |
+| Mean health, all 900 electrodes | **0.79** | 0.755 |
+| Dead electrodes (health < 0.1) | 144 | **127** |
+| Mean health of the electrodes used | 0.60 | **0.67** |
+
+<p align="center"><img src="results/exp3_wear_analysis/exp3_wear_analysis.png" width="95%" alt="Wear metrics per router"></p>
+
+- Health-aware A\* has fewer dead electrodes on **all 10 chips**, and needs fewer actuations in total.
+- It uses ~40% more electrodes, wearing each one a little instead of wearing out a few corridors completely.
+  Because health is multiplicative and floors at zero, that lowers the chip-wide *average* even though
+  the chip stays usable much longer.
+- So chip-wide mean health is a poor lifetime metric. We now report dead electrodes, health of the used
+  electrodes, and success over time.
+
 ### Experiment 4: first PPO agents
 
 Two PPO agents (Stable-Baselines3, small 3-layer CNN) trained for 300k steps each on
@@ -243,6 +344,55 @@ on the **same 500 unseen chips**.
 > Numbers are from a CPU run of `exp4_ppo.py --timesteps 300000`. RL training is not bit-for-bit reproducible across
 > hardware, so a GPU run gives slightly different values (the report's Colab run got 0.690 and 0.650).
 
+### Experiment 6: routing vs blockage percentage
+
+Each electrode is independently **blocked** (health 0) with probability *b*, otherwise **good** (health 1),
+so chip health = 1 − *b*. *b* is swept from 10% to 90%, with 300 random chips (one task each) per level;
+every method gets the same chip and task. Success is measured two ways: within the bioassay deadline
+(1.5× the shortest path), and with no real deadline (10× budget).
+
+**Main setting** (30×30 chip, 3×3 droplet; the droplet may sit on blocked electrodes and a move succeeds
+with probability = share of good electrodes under it, the same physics as the rest of the simulator):
+
+| Blocked | A\* (deadline) | Health-aware A\* (deadline) | A\* (no deadline) | Health-aware A\* (no deadline) |
+|:---:|:---:|:---:|:---:|:---:|
+| 10% | 0.99 | **1.00** | 1.00 | 1.00 |
+| 20% | 0.90 | **0.97** | 1.00 | 1.00 |
+| 30% | 0.63 | **0.86** | 1.00 | 1.00 |
+| 40% | 0.31 | **0.62** | 1.00 | 1.00 |
+| 50% | 0.11 | **0.28** | 0.97 | **1.00** |
+| 60% | 0.04 | **0.10** | 0.86 | **0.99** |
+| 70% | 0.01 | **0.02** | 0.66 | **0.95** |
+| 80% | 0.00 | 0.00 | 0.29 | **0.82** |
+| 90% | 0.00 | 0.00 | 0.03 | **0.27** |
+
+<p align="center">
+  <img src="results/blockage_sweep/blockage_success_soft_30.png" width="49%" alt="Deadline success vs blockage">
+  <img src="results/blockage_sweep/blockage_steps_soft_30.png" width="49%" alt="Routing time vs blockage">
+</p>
+
+**With PPO** (12×12 chip; one PPO agent trained for 500k steps on chips with random 0–90% blockage,
+observing the blockage map). Deadline success:
+
+| Blocked | 10% | 20% | 30% | 40% | 50% | 60% | 70% | 80% | 90% |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A\* | 0.96 | 0.91 | 0.66 | 0.52 | 0.31 | 0.15 | 0.06 | 0.03 | 0.02 |
+| **Health-aware A\*** | **0.98** | **0.94** | **0.76** | **0.65** | **0.40** | **0.21** | **0.11** | **0.05** | **0.02** |
+| PPO | 0.94 | 0.89 | 0.65 | 0.49 | 0.28 | 0.11 | 0.06 | 0.03 | 0.00 |
+
+<p align="center"><img src="results/blockage_sweep/blockage_success_soft_12_ppo.png" width="60%" alt="A*, health-aware A* and PPO vs blockage"></p>
+
+- **Health-aware A\* wins at every blockage level.** Its advantage is largest between 20% and 50% blocked
+  when a deadline applies, and between 60% and 90% when it does not. It is also 10–25% faster on successful tasks.
+- **PPO performs about like plain A\*** and stays below health-aware A\*, the same picture as Experiment 4.
+- Two further chip models are in [`results/blockage_sweep/`](results/blockage_sweep/):
+  `*_soft_30_worn` (blocked electrodes plus partly worn good ones: same ranking, larger gaps) and
+  `*_hard_30_worn` (blocked electrodes are walls a 1×1 droplet cannot cross: health-aware A\* meets the
+  deadline on 84% of tasks at 10% blocked vs 10% for A\*; above ~60% blocked most goals are cut off
+  entirely, see the `reachable_tasks` column, so no router can succeed).
+- With walls and no partial wear, A\* and health-aware A\* would plan identical routes: health-awareness
+  pays off only when electrode health is graded, not purely good/blocked.
+
 ---
 
 ## Simulator details
@@ -266,10 +416,23 @@ reservoir/mixer sites (`task_mode="ports"`).
 
 ## Next steps
 
-- [ ] Train PPO for 1–2 M steps with a tighter training deadline, over 3–5 seeds
-- [ ] Add a health term to the reward (`degrade_penalty` is already supported by the simulator)
-- [ ] Ablation: agent with vs without the health channel (Liang vs Elfar formulation)
-- [ ] Curriculum learning over chip size and degradation level
+**Main goal: make the health-aware PPO agent clearly better than the PPO agent without health,
+and then better than health-aware A\*.** Today the agent that sees the health map does no better
+(66% vs 68% in Experiment 4), so the extra information is not being used yet. Planned changes:
+
+- [ ] Add a health term to the reward (`degrade_penalty` is already supported by the simulator), so
+      routing over worn or blocked electrodes costs the agent directly instead of only through failed moves
+- [ ] Train with the same 1.5× deadline used at test time (training currently allows 3×)
+- [ ] Train for 1–2 M steps over 3–5 seeds, and compare health vs no-health at each blockage level (Experiment 6)
+- [ ] Give the agent health-aware A\*'s cost map as an extra input, or warm-start it by imitating health-aware A\*
+- [ ] Curriculum over blockage percentage (start easy, increase blockage as the agent improves)
+
+Other work following the supervisor's feedback:
+
+- [x] Define chip health as good electrodes ÷ all electrodes and sweep blockage 10–90% (Experiment 6)
+- [x] Explain the Experiment 3 mean-health result and add better lifetime metrics (Experiment 3b)
+- [ ] Track how the blocked percentage grows over time in the lifetime experiment, for each router
+- [ ] Add a wear-levelling term to health-aware A\* (penalise electrodes by how often they are used)
 - [ ] Evaluate the learned router on the chip-lifetime benchmark (Experiment 3)
 
 ---

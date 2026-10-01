@@ -24,7 +24,8 @@ path (the bioassay deadline). "Success (no deadline)" uses a 10x budget.
 
 Outputs in --out (file names end with the mode, chip size and options):
   blockage_results_*.csv, blockage_success_*.png,
-  blockage_success_nodeadline_*.png, blockage_steps_*.png (routing time on the
+  blockage_success_nodeadline_*.png, blockage_count_*.png (successful tasks as bars),
+  blockage_steps_*.png (routing time on the
   tasks every method solved, so all methods are timed on the same tasks), blockage_example_*.png
 
   python experiments/exp6_blockage_sweep.py --mode soft
@@ -259,6 +260,24 @@ for metric, ylab, fn in [
     ax.grid(alpha=0.3); ax.legend()
     fig.tight_layout(); fig.savefig(os.path.join(args.out, f"blockage_{fn}_{tag}.png"), dpi=200)
     plt.close(fig)
+
+# number of successful tasks (out of n per level) as grouped bars: within the deadline and eventually
+fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+width = 0.8 / len(methods)
+for ax, metric, sub in zip(axes, ["success_deadline", "success_no_deadline"],
+                           [f"within the deadline ({args.slack}x shortest path)",
+                            f"eventually (budget {NO_DEADLINE:.0f}x)"]):
+    for k, m in enumerate(methods):
+        cnt = [round(r[metric] * r["n"]) for r in rows if r["method"] == m]
+        pos = np.arange(len(x)) + (k - (len(methods) - 1) / 2) * width
+        bars = ax.bar(pos, cnt, width, label=m)
+        ax.bar_label(bars, fontsize=6, padding=1)
+    ax.set_xticks(np.arange(len(x)), [f"{v:.0f}" for v in x])
+    ax.set_xlabel("Blocked electrodes (% of chip)"); ax.set_ylabel(f"Successful tasks (out of {args.n})")
+    ax.set_ylim(0, args.n * 1.2); ax.set_title(f"Successful tasks {sub}", fontsize=10)
+    ax.grid(axis="y", alpha=0.3); ax.legend(fontsize=8, ncol=len(methods), loc="upper right")
+fig.suptitle(title, fontsize=9)
+fig.tight_layout(); fig.savefig(os.path.join(args.out, f"blockage_count_{tag}.png"), dpi=200); plt.close(fig)
 
 if example is not None:   # one 30 % chip with both A* routes drawn
     fig, ax = plt.subplots(figsize=(5, 5))

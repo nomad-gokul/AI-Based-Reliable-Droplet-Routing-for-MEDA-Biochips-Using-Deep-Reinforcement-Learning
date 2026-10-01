@@ -383,7 +383,9 @@ observing the blockage map). Deadline success:
 <p align="center"><img src="results/blockage_sweep/blockage_success_soft_12_ppo.png" width="60%" alt="A*, health-aware A* and PPO vs blockage"></p>
 
 - **Health-aware A\* wins at every blockage level.** Its advantage is largest between 20% and 50% blocked
-  when a deadline applies, and between 60% and 90% when it does not. It is also 10–25% faster on successful tasks.
+  when a deadline applies, and between 60% and 90% when it does not. Up to 70% blocked it is also 6–23% faster on successful
+  tasks. At 80–90% its mean time is higher because it also completes hard tasks that A\* fails (A\* succeeds on
+  only 3% of tasks at 90%, so its average covers only the easiest ones).
 - **PPO performs about like plain A\*** and stays below health-aware A\*, the same picture as Experiment 4.
 - Two further chip models are in [`results/blockage_sweep/`](results/blockage_sweep/):
   `*_soft_30_worn` (blocked electrodes plus partly worn good ones: same ranking, larger gaps) and

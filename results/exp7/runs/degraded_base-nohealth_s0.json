@@ -1,0 +1,17 @@
+{
+ "setting": "degraded",
+ "variant": "base-nohealth",
+ "seed": 0,
+ "timesteps": 500000,
+ "config": {
+  "health": false,
+  "slack": 3.0
+ },
+ "train_minutes": 26.2,
+ "test": {
+  "all": {
+   "success": 0.676,
+   "n": 500
+  }
+ }
+}

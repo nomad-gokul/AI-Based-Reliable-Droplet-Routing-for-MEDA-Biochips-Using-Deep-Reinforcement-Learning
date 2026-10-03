@@ -1,0 +1,85 @@
+{
+ "setting": "degraded",
+ "variant": "bc-ft",
+ "seed": 1,
+ "timesteps": 500000,
+ "config": {
+  "health": true,
+  "slack": 1.5,
+  "features": [
+   "time",
+   "prob"
+  ],
+  "bc": true,
+  "select": true,
+  "ppo": {
+   "learning_rate": 3e-05,
+   "ent_coef": 0.0,
+   "clip_range": 0.1
+  }
+ },
+ "train_minutes": 50.6,
+ "test": {
+  "all": {
+   "success": 0.742,
+   "n": 500
+  }
+ },
+ "test_imitation_only": {
+  "all": {
+   "success": 0.746,
+   "n": 500
+  }
+ },
+ "validation": [
+  [
+   0,
+   0.75
+  ],
+  [
+   50000,
+   0.74
+  ],
+  [
+   100000,
+   0.745
+  ],
+  [
+   150000,
+   0.735
+  ],
+  [
+   200000,
+   0.74
+  ],
+  [
+   250000,
+   0.745
+  ],
+  [
+   300000,
+   0.745
+  ],
+  [
+   350000,
+   0.75
+  ],
+  [
+   400000,
+   0.74
+  ],
+  [
+   450000,
+   0.735
+  ],
+  [
+   500000,
+   0.755
+  ],
+  [
+   501760,
+   0.75
+  ]
+ ],
+ "kept_step": 500000
+}

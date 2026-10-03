@@ -1,0 +1,29 @@
+{
+ "setting": "degraded",
+ "variant": "cost-bc",
+ "seed": 0,
+ "timesteps": 500000,
+ "config": {
+  "health": true,
+  "slack": 1.5,
+  "features": [
+   "time",
+   "prob",
+   "cost"
+  ],
+  "bc": true
+ },
+ "train_minutes": 49.4,
+ "test": {
+  "all": {
+   "success": 0.704,
+   "n": 500
+  }
+ },
+ "test_imitation_only": {
+  "all": {
+   "success": 0.726,
+   "n": 500
+  }
+ }
+}

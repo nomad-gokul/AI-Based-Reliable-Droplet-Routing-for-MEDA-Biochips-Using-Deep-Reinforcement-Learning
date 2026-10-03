@@ -1,0 +1,21 @@
+{
+ "setting": "degraded",
+ "variant": "prob",
+ "seed": 0,
+ "timesteps": 500000,
+ "config": {
+  "health": true,
+  "slack": 1.5,
+  "features": [
+   "time",
+   "prob"
+  ]
+ },
+ "train_minutes": 28.6,
+ "test": {
+  "all": {
+   "success": 0.654,
+   "n": 500
+  }
+ }
+}

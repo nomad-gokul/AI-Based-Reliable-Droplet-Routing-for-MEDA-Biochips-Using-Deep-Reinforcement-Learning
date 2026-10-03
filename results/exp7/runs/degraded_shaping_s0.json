@@ -1,0 +1,22 @@
+{
+ "setting": "degraded",
+ "variant": "shaping",
+ "seed": 0,
+ "timesteps": 500000,
+ "config": {
+  "health": true,
+  "slack": 1.5,
+  "features": [
+   "time",
+   "prob"
+  ],
+  "shaping": 0.05
+ },
+ "train_minutes": 30.3,
+ "test": {
+  "all": {
+   "success": 0.676,
+   "n": 500
+  }
+ }
+}

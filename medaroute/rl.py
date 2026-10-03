@@ -9,7 +9,7 @@ Reinforcement-learning building blocks for the health-aware PPO agent (Experimen
       "time" : fraction of the step budget left (lets the agent know the deadline)
       "prob" : move-success probability at every droplet centre (mean health under the droplet)
       "cost" : health-aware A*'s cost-to-go to the goal (expected cycles, scaled to [0, 1])
-* collect_expert / pretrain_bc : behaviour cloning from a classical router (warm start for PPO)
+* imitate            : behaviour cloning + DAgger from a classical router (warm start for PPO)
 * CurriculumCallback : raises the chip difficulty from easy to the target during training
 * run_agent          : run a trained model on an environment (closed loop)
 
@@ -27,7 +27,8 @@ import torch.nn as nn
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
-from .routers import astar, cost_to_go, greedy_action
+from .env import ACTIONS
+from .routers import astar, cost_to_go
 
 FEATURES = ("time", "prob", "cost")
 
@@ -148,19 +149,40 @@ class CurriculumCallback(BaseCallback):
 
 
 # --------------------------------------------------------- imitation warm start
-def collect_expert(env: RoutingTask, n_episodes, health_aware=True, gamma=0.99):
-    """Roll out the classical router (health-aware A* or plain A*, replanned every step)
-    in a RoutingTask env. Returns observations, expert actions and discounted returns."""
-    obs_l, act_l, ret_l = [], [], []
+def expert_mask(env, dist, tol=1e-9):
+    """Boolean mask of the expert's optimal actions: every valid move to a neighbour with
+    the lowest cost-to-go (often several tie, e.g. on undamaged parts of the chip)."""
+    mask = np.zeros(len(ACTIONS), bool)
+    vals = np.full(len(ACTIONS), np.inf)
+    for a, (dy, dx) in enumerate(ACTIONS):
+        v = (env.pos[0] + dy, env.pos[1] + dx)
+        if env.valid(v):
+            vals[a] = dist[v]
+    if np.isfinite(vals).any():
+        mask = vals <= vals.min() * (1 + tol) + tol
+    else:
+        mask[:] = True                           # no route: any action is as good
+    return mask
+
+
+def collect_expert(env: RoutingTask, n_episodes, health_aware=True, gamma=0.99, model=None):
+    """Label states with the classical router's optimal actions (health-aware A* or plain
+    A*, replanned every step). Without `model` the expert drives (behaviour cloning); with
+    `model` the learner drives and the expert only labels the states it reaches (DAgger).
+    Returns observations, optimal-action masks and discounted returns of the driven episodes."""
+    obs_l, mask_l, ret_l = [], [], []
     for _ in range(n_episodes):
         obs, _ = env.reset()
         e = env.unwrapped
         rews = []
         while True:
             dist = env.cache.get(e) if health_aware else cost_to_go(e, health_aware=False)
-            a = greedy_action(e, dist)
-            a = 0 if a is None else a
-            obs_l.append(obs); act_l.append(a)
+            mask = expert_mask(e, dist)
+            if model is None:
+                a = int(np.argmax(mask))
+            else:
+                a = int(model.predict(obs, deterministic=True)[0])
+            obs_l.append(obs); mask_l.append(mask)
             obs, r, term, trunc, _ = env.step(a)
             rews.append(r)
             if term or trunc:
@@ -170,20 +192,21 @@ def collect_expert(env: RoutingTask, n_episodes, health_aware=True, gamma=0.99):
             g = r + gamma * g
             rets.append(g)
         ret_l.extend(rets[::-1])
-    return np.array(obs_l, np.float32), np.array(act_l), np.array(ret_l, np.float32)
+    return np.array(obs_l, np.float32), np.array(mask_l), np.array(ret_l, np.float32)
 
 
-def pretrain_bc(model, obs, actions, returns, epochs=15, value_epochs=5, batch_size=256, lr=3e-4, seed=0):
-    """Behaviour cloning in two stages, so that PPO fine-tuning starts from a working
+def pretrain_bc(model, obs, masks, returns, epochs=15, value_epochs=5, batch_size=256, lr=3e-4, seed=0):
+    """Supervised pre-training in two stages, so that PPO fine-tuning starts from a working
     router instead of a random one:
-      1. the whole policy network imitates the expert's actions (cross-entropy)
-      2. with the shared CNN frozen, the value head learns the expert's returns
+      1. the whole policy network learns to put its probability on the expert's optimal
+         actions (loss = -log P(any optimal action), so ties are not penalised)
+      2. with the shared CNN frozen, the value head learns the returns
     (Training both at once lets the value loss swamp the imitation loss.)"""
     policy = model.policy
     rng = np.random.default_rng(seed)
     n, dev = len(obs), policy.device
     obs_t = torch.as_tensor(obs, device=dev)
-    act_t = torch.as_tensor(actions, device=dev)
+    mask_t = torch.as_tensor(masks, device=dev)
     ret_t = torch.as_tensor(returns, device=dev)
     value_params = list(policy.mlp_extractor.value_net.parameters()) + list(policy.value_net.parameters())
     policy.set_training_mode(True)
@@ -194,18 +217,37 @@ def pretrain_bc(model, obs, actions, returns, epochs=15, value_epochs=5, batch_s
             tot, acc = 0.0, 0.0
             for i in range(0, n, batch_size):
                 b = idx[i:i + batch_size]
-                values, log_prob, _ = policy.evaluate_actions(obs_t[b], act_t[b])
                 if stage == "policy":
-                    loss = -log_prob.mean()
-                    acc += (policy.get_distribution(obs_t[b]).distribution.probs.argmax(1)
-                            == act_t[b]).sum().item()
+                    logits = policy.get_distribution(obs_t[b]).distribution.logits
+                    loss = (torch.logsumexp(logits, 1)
+                            - torch.logsumexp(logits.masked_fill(~mask_t[b], -1e9), 1)).mean()
+                    acc += mask_t[b].gather(1, logits.argmax(1, keepdim=True)).sum().item()
                 else:
-                    loss = ((values.flatten() - ret_t[b]) ** 2).mean()
+                    loss = ((policy.predict_values(obs_t[b]).flatten() - ret_t[b]) ** 2).mean()
                 opt.zero_grad(); loss.backward(); opt.step()
                 tot += loss.item() * len(b)
-            msg = f", expert-action accuracy {acc / n:.3f}" if stage == "policy" else ""
-            print(f"  BC {stage} epoch {ep + 1}/{n_ep}: loss {tot / n:.3f}{msg}", flush=True)
+            if ep == n_ep - 1 or ep == 0:
+                msg = f", picks an optimal action {acc / n:.3f}" if stage == "policy" else ""
+                print(f"  {stage} epoch {ep + 1}/{n_ep}: loss {tot / n:.3f}{msg}", flush=True)
     policy.set_training_mode(False)
+
+
+def imitate(model, env: RoutingTask, health_aware=True, bc_episodes=3000, dagger_rounds=4,
+            dagger_episodes=1000, gamma=0.99, seed=0):
+    """Behaviour cloning on expert episodes, then DAgger rounds: the learner drives, the
+    expert labels the states it actually reaches, and the policy is retrained on all data.
+    (Pure behaviour cloning never sees the states that follow its own mistakes.)"""
+    print(f"behaviour cloning on {bc_episodes} expert episodes", flush=True)
+    data = list(collect_expert(env, bc_episodes, health_aware, gamma))
+    pretrain_bc(model, *data, value_epochs=0, seed=seed)
+    for k in range(dagger_rounds):
+        new = collect_expert(env, dagger_episodes, health_aware, gamma, model=model)
+        data = [np.concatenate([d, x]) for d, x in zip(data, new)]
+        print(f"DAgger round {k + 1}/{dagger_rounds}: {len(data[0])} labelled states", flush=True)
+        last = k == dagger_rounds - 1
+        pretrain_bc(model, *data, epochs=5, value_epochs=5 if last else 0, seed=seed + k + 1)
+    if dagger_rounds == 0:
+        pretrain_bc(model, *data, epochs=0, value_epochs=5, seed=seed)
 
 
 # --------------------------------------------------------------- evaluation

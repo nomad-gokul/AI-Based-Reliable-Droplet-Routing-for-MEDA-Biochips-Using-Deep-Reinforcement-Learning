@@ -11,7 +11,8 @@ measured (see VARIANTS below):
   "cost"         observation channel: health-aware A*'s cost-to-go map
   penalty        reward term: -penalty * (1 - move-success probability) every step
   shaping        potential-based reward shaping with health-aware cost-to-go
-  bc             warm start by imitating health-aware A* (plain A* for no-health agents)
+  bc             warm start by imitating health-aware A* (plain A* for no-health agents):
+                 behaviour cloning, then DAgger rounds
   curriculum     start on easy chips, reach the target difficulty halfway through training
 
 Settings (--setting):
@@ -71,6 +72,7 @@ p.add_argument("--timesteps", type=int, default=500_000)
 p.add_argument("--n_envs", type=int, default=8)
 p.add_argument("--threads", type=int, default=1, help="torch CPU threads (1 lets several runs share a CPU)")
 p.add_argument("--bc_episodes", type=int, default=3000)
+p.add_argument("--dagger_rounds", type=int, default=4, help="DAgger rounds after behaviour cloning")
 p.add_argument("--eval_episodes", type=int, default=None,
                help="test chips (default 500 for degraded, 200 per level for blockage)")
 p.add_argument("--eval_only", action="store_true", help="re-test a saved model")
@@ -161,8 +163,7 @@ def train_and_test():
     from stable_baselines3 import PPO
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv
-    from medaroute.rl import (SmallCNN, RoutingTask, CurriculumCallback, collect_expert,
-                              pretrain_bc, run_agent)
+    from medaroute.rl import SmallCNN, RoutingTask, CurriculumCallback, imitate, run_agent
     torch.set_num_threads(args.threads)
     cfg = dict(VARIANTS[args.variant])
     feats = tuple(cfg.get("features", ()))
@@ -194,13 +195,11 @@ def train_and_test():
                                        features_extractor_kwargs=dict(features_dim=256),
                                        net_arch=dict(pi=[128], vf=[128])))
         if cfg.get("bc"):
-            expert = "health-aware A*" if cfg["health"] else "A*"
-            print(f"collecting {args.bc_episodes} {expert} episodes for behaviour cloning ...", flush=True)
-            data = collect_expert(make(10_000)(), args.bc_episodes, health_aware=cfg["health"],
-                                  gamma=PPO_KW["gamma"])
-            pretrain_bc(model, *data, seed=args.seed)
+            print("imitating", "health-aware A*" if cfg["health"] else "A*", flush=True)
+            imitate(model, make(10_000)(), health_aware=cfg["health"], bc_episodes=args.bc_episodes,
+                    dagger_rounds=args.dagger_rounds, gamma=PPO_KW["gamma"], seed=args.seed)
             bc_test = test(model)                     # the imitation policy before any RL
-            print("after behaviour cloning:", json.dumps(bc_test), flush=True)
+            print("after imitation:", json.dumps(bc_test), flush=True)
         cb = CurriculumCallback(args.timesteps) if cfg.get("curriculum") else None
         print(f"training {name} for {args.timesteps} steps ...", flush=True)
         model.learn(total_timesteps=args.timesteps, callback=cb)
@@ -212,7 +211,7 @@ def train_and_test():
                                                    for k, v in cfg.items()},
            "train_minutes": round(train_min, 1), "test": test(model)}
     if bc_test:
-        out["test_bc_only"] = bc_test
+        out["test_imitation_only"] = bc_test
     json.dump(out, open(os.path.join(RUNS, name + ".json"), "w"), indent=1)
     print(json.dumps(out["test"]))
 

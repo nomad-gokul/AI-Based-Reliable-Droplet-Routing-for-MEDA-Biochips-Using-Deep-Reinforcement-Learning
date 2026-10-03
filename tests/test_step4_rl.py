@@ -121,6 +121,13 @@ def test_collect_expert_shapes():
     from medaroute.rl import RoutingTask, collect_expert
     e = RoutingTask(MEDARoutingEnv(12, 12, frac_degradable=0.5, pre_age_max=15), slack=1.5)
     e.reset(seed=1)
-    obs, act, ret = collect_expert(e, 20)
-    assert len(obs) == len(act) == len(ret) and obs.shape[1:] == (4, 12, 12)
-    assert act.min() >= 0 and act.max() < 8
+    obs, mask, ret = collect_expert(e, 20)
+    assert len(obs) == len(mask) == len(ret) and obs.shape[1:] == (4, 12, 12)
+    assert mask.shape[1] == 8 and mask.any(1).all()
+
+
+def test_expert_mask_marks_all_tied_moves():
+    from medaroute.rl import expert_mask
+    env = env_with((10, 10), (2, 10))              # goal straight north on a healthy chip
+    mask = expert_mask(env, cost_to_go(env))
+    assert mask.tolist() == [True, False, False, False, True, False, False, True]   # N, NE, NW

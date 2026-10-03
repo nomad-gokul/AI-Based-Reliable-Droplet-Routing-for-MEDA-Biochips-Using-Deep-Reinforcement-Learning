@@ -34,10 +34,12 @@ Netaji Subhas University of Technology (NSUT) · Supervisor: Dr. Ankur Gupta
 > deep reinforcement learning router is meant to close.
 
 > [!NOTE]
-> **First deep RL agents already beat plain A\*.** Two PPO agents trained for 300k steps
-> reach ~100% success during training and **68% / 66%** on 500 unseen test chips, vs **64%** for A\*.
-> They don't yet beat health-aware A\* (**79%**); closing that gap is the next phase
-> (see [Experiment 4](#experiment-4-first-ppo-agents)).
+> **The health-aware learned router now clearly beats the one without health.** An agent that imitates
+> health-aware A\* (behaviour cloning + DAgger) and sees the health map completes **74%** of 500 unseen test tasks,
+> against **67%** for the same agent without the health map and **64%** for plain A\*; plain PPO stays at 65–69%
+> however it is trained. It does not beat health-aware A\* (**79%**), and no router can by much: the exact
+> deadline-optimal router reaches only **79.6%**, so health-aware A\* is already near-optimal on this task
+> (see [Experiment 7](#experiment-7-improving-the-health-aware-ppo-agent)).
 
 > [!NOTE]
 > **New focus: performance vs blockage percentage.** Following our supervisor's feedback
@@ -124,9 +126,11 @@ degrade and the ones no route uses.
 
 1. Blockage percentage (10–90%) is the headline benchmark for every router.
 2. Lifetime results use dead-electrode count and used-electrode health instead of chip-wide mean health.
-3. **Next goal: make the health-aware PPO agent beat the PPO agent without health, and then health-aware A\*.**
-   Right now the agent that sees the health map does no better than the one that doesn't (Experiment 4).
-   See [Next steps](#next-steps).
+3. **Make the health-aware PPO agent beat the PPO agent without health, and then health-aware A\*.**
+   Done for the first part in [Experiment 7](#experiment-7-improving-the-health-aware-ppo-agent): with an imitation
+   warm start the agent that sees the health map is 7 points better than the one that doesn't. The second part is
+   not achievable on single-droplet deadline routing, where health-aware A\* is within 1 point of the best
+   possible router; see [Next steps](#next-steps) for where a learned router can still win.
 
 ---
 
@@ -222,8 +226,8 @@ python -m pytest        # 30 tests, a few seconds
 | `python experiments/exp6_blockage_sweep.py --mode soft --worn` | Same, with the good electrodes also partly worn | ~3 min |
 | `python experiments/exp6_blockage_sweep.py --mode hard --worn` | Blocked electrodes are walls the droplet cannot cross | ~2 min |
 | `python experiments/exp6_blockage_sweep.py --size 12 --ppo --ppo_steps 500000` | Adds a PPO agent (12×12 chip) | ~20 min |
-| `python experiments/exp7_health_ppo.py --variant bc` | Trains and tests one Experiment 7 agent (here: imitation + PPO) | ~45 min |
-| `python experiments/exp7_health_ppo.py --setting blockage --variant bc --eval_episodes 100` | Same agent on blockage chips, tested at 10–90% | ~50 min |
+| `python experiments/exp7_health_ppo.py --variant bc-ft` | Trains and tests the main Experiment 7 agent (imitation + cautious PPO fine-tuning) | ~50 min |
+| `python experiments/exp7_health_ppo.py --setting blockage --variant bc-ft --eval_episodes 100` | Same agent on blockage chips, tested at 10–90% | ~55 min |
 | `python experiments/exp7_health_ppo.py --report` | Collects all Experiment 7 runs into a table and figures | seconds |
 
 Figures and CSV files are written to `results/`. Every script takes command-line options
@@ -410,6 +414,81 @@ observing the blockage map). Deadline success:
 - With walls and no partial wear, A\* and health-aware A\* would plan identical routes: health-awareness
   pays off only when electrode health is graded, not purely good/blocked.
 
+### Experiment 7: improving the health-aware PPO agent
+
+Goal from the supervisor meeting: make the PPO agent that sees the health map clearly better than the one
+that doesn't, and then better than health-aware A\*. Same task and the same 500 unseen test chips as
+Experiment 4 (12×12, 50% degradable, pre-aged, deadline 1.5× the shortest path). Every variant changes one
+thing; 500k PPO steps, one seed unless noted. Script: [`experiments/exp7_health_ppo.py`](experiments/exp7_health_ppo.py),
+building blocks in [`medaroute/rl.py`](medaroute/rl.py).
+
+**How much better than health-aware A\* can any router be?** With one droplet, a move from a position succeeds
+with the same probability whatever its direction, so the router with the highest chance of arriving before the
+deadline can be computed exactly by dynamic programming over (position, steps left) (`deadline_optimal` in
+[`medaroute/routers.py`](medaroute/routers.py)). On the test chips it succeeds with probability
+**0.796**, against **0.788** for health-aware A\*.
+**Health-aware A\* is already within 1 point of the best possible router on this task**, so no learned agent
+can beat it by a meaningful margin here; the realistic target is to match it.
+
+| Method | Sees health | Test success (500 chips) |
+|---|:---:|:---:|
+| A\* |  | 0.644 |
+| Health-aware A\* | ✓ | **0.788** |
+| Best possible router (deadline-optimal upper bound) | ✓ | 0.796 |
+| **Plain PPO** (trained from scratch) |  |  |
+| Experiment 4 recipe (`base`, 3× training step limit) | ✓ | 0.670 |
+| Experiment 4 recipe without the health map (`base-nohealth`) |  | 0.676 |
+| + health penalty in the reward (`penalty`) | ✓ | 0.680 |
+| 1.5× training deadline, as at test time (`slack`) | ✓ | 0.674 |
+| 1.5× deadline + time-left channel (`time`) | ✓ | 0.690 |
+| … + move-success channel (`prob`) | ✓ | 0.654 |
+| … + health-based reward shaping (`shaping`) | ✓ | 0.676 |
+| … + curriculum from fresh to worn chips (`curriculum`) | ✓ | – |
+| **Imitation of health-aware A\*** (behaviour cloning + DAgger), then PPO |  |  |
+| Imitation only, no PPO | ✓ | 0.746 |
+| Imitation only, no PPO, without the health map (imitates plain A\*) |  | 0.666 |
+| Imitation + PPO at the normal learning rate (`bc`) | ✓ | 0.692 |
+| … with the cost-map channel too (`cost-bc`) | ✓ | 0.704 |
+| … without the health map (`bc-nohealth`) |  | 0.680 |
+| **Imitation + cautious fine-tuning, best checkpoint on validation chips (`bc-ft`)** | ✓ | **0.738** |
+| … without the health map (`bc-ft-nohealth`) |  | 0.666 |
+
+<p align="center">
+  <img src="results/exp7/exp7_degraded.png" width="90%" alt="Experiment 7: test success of every variant">
+</p>
+
+- **Plain PPO stays at 0.65–0.69 whatever we change.** The reward terms, the 1.5× training deadline and the extra
+  input channels each move it by at most about 2 points, which is within the ±2-point noise of 500 test chips.
+  Seeing the health map still doesn't help plain PPO (0.670 with it vs 0.676 without).
+- **Imitating health-aware A\* is what makes the health map pay off.** Behaviour cloning alone reached 95% agreement
+  with the expert but only 0.66 success, because it never saw the states that follow its own mistakes. With DAgger
+  (the agent drives, health-aware A\* labels the states it reaches) the agent that sees the health map scores
+  **0.738** vs **0.666** without it: **+7 points, the first clear gain from the health
+  map**, and within 5 points of health-aware A\*.
+- **PPO fine-tuning at the normal learning rate undoes most of that gain** (0.746 → 0.692); PPO drifts back to its own
+  plateau. Cautious fine-tuning (10× lower learning rate, no entropy bonus, keep the best checkpoint on 200
+  separate validation chips) keeps the imitation policy but doesn't improve on it. As health-aware A\* is
+  already near-optimal, there is little left for PPO to find on this task.
+- The cost-map channel didn't help on top of imitation (0.726 vs 0.746 imitation only).
+
+**Health vs no health at each blockage level** (soft blockage with worn good electrodes, 12×12, agents trained on
+0–90% blockage, 100 test chips per level, so each value is ±5 points):
+
+| Blocked | 10% | 20% | 30% | 40% | 50% | 60% | 70% | 80% | 90% | mean |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A\* | 0.57 | 0.36 | 0.26 | 0.19 | 0.05 | 0.10 | 0.04 | 0.00 | 0.00 | 0.174 |
+| Health-aware A\* | 0.69 | 0.46 | 0.37 | 0.24 | 0.11 | 0.13 | 0.05 | 0.01 | 0.00 | 0.229 |
+| Best possible (upper bound) | 0.69 | 0.52 | 0.35 | 0.27 | 0.14 | 0.09 | 0.04 | 0.01 | 0.00 | 0.236 |
+| Imitation + fine-tuning, with health map | 0.61 | 0.38 | 0.23 | 0.22 | 0.09 | 0.07 | 0.04 | 0.01 | 0.00 | 0.183 |
+| Imitation + fine-tuning, without health map | 0.62 | 0.38 | 0.27 | 0.19 | 0.06 | 0.09 | 0.03 | 0.00 | 0.00 | 0.182 |
+
+<p align="center"><img src="results/exp7/exp7_blockage.png" width="60%" alt="Health vs no-health agents vs blockage"></p>
+
+- On blockage chips the two learned agents are level (0.183 vs 0.182 averaged over the levels)
+  and both sit close to plain A\*. Here the agent without the health map still sees which electrodes are
+  blocked, which is most of what matters, and one network has to cover 0–90% blockage. The upper bound again
+  stays within a few points of health-aware A\* at every level.
+
 ---
 
 ## Simulator details
@@ -433,24 +512,38 @@ reservoir/mixer sites (`task_mode="ports"`).
 
 ## Next steps
 
-**Main goal: make the health-aware PPO agent clearly better than the PPO agent without health,
-and then better than health-aware A\*.** Today the agent that sees the health map does no better
-(66% vs 68% in Experiment 4), so the extra information is not being used yet. Planned changes:
+**Status of the health-aware PPO goal (Experiment 7).** The agent that sees the health map is now clearly better
+than the one that doesn't (74% vs 67%), but it does not beat health-aware A\* (79%), and on this task no router
+can by more than about 1 point.
 
-- [ ] Add a health term to the reward (`degrade_penalty` is already supported by the simulator), so
-      routing over worn or blocked electrodes costs the agent directly instead of only through failed moves
-- [ ] Train with the same 1.5× deadline used at test time (training currently allows 3×)
-- [ ] Train for 1–2 M steps over 3–5 seeds, and compare health vs no-health at each blockage level (Experiment 6)
-- [ ] Give the agent health-aware A\*'s cost map as an extra input, or warm-start it by imitating health-aware A\*
-- [ ] Curriculum over blockage percentage (start easy, increase blockage as the agent improves)
+- [x] Add a health term to the reward: `degrade_penalty` and potential-based shaping with health-aware
+      cost-to-go (`penalty`, `shaping`); each changes plain PPO by at most ~2 points
+- [x] Train with the same 1.5× deadline used at test time (`slack`, `time`); about +2 points with the time-left channel
+- [x] Give the agent health-aware A\*'s cost map as an extra input (`cost`, `cost-bc`): no gain on top of imitation
+- [x] Warm-start by imitating health-aware A\* (behaviour cloning + DAgger, `bc-ft`): the main gain, +7 points
+      over the no-health agent
+- [x] Curriculum over chip wear (`curriculum`); a curriculum over blockage percentage is supported
+      (`--setting blockage`) but was not run
+- [x] Compare health vs no-health at each blockage level: level on blockage chips (Experiment 7)
+- [ ] Train for 1–2 M steps over 3–5 seeds (done: 500k steps, 2 seeds for the main comparison, 1 for the others)
 
-Other work following the supervisor's feedback:
+**Where a learned router can still beat health-aware A\*.** Health-aware A\* is near-optimal for one droplet,
+one task and a fixed deadline, because it plans on the health the chip has *now*. It cannot plan for the wear its
+own routes cause, nor for several droplets sharing the chip. Those are the objectives to give the RL agent next:
+
+- [ ] Evaluate and train the learned router on the chip-lifetime benchmark (Experiment 3), with reward for
+      keeping the chip usable over many tasks
+- [ ] Add a wear-levelling term to health-aware A\* (penalise electrodes by how often they are used), as a
+      stronger lifetime baseline
+- [ ] Multiple droplets routed at once (Liang et al.'s multi-agent setting)
+- [ ] Track how the blocked percentage grows over time in the lifetime experiment, for each router
+- [ ] Close the remaining 4-point gap of the imitation agent (larger network, more DAgger data), and train
+      separate agents per blockage range
+
+Done after the supervisor's feedback:
 
 - [x] Define chip health as good electrodes ÷ all electrodes and sweep blockage 10–90% (Experiment 6)
 - [x] Explain the Experiment 3 mean-health result and add better lifetime metrics (Experiment 3b)
-- [ ] Track how the blocked percentage grows over time in the lifetime experiment, for each router
-- [ ] Add a wear-levelling term to health-aware A\* (penalise electrodes by how often they are used)
-- [ ] Evaluate the learned router on the chip-lifetime benchmark (Experiment 3)
 
 ---
 

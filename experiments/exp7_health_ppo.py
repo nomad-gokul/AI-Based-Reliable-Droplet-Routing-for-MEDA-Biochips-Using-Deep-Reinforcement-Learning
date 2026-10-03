@@ -21,8 +21,8 @@ Settings (--setting):
              (200 chips per level, the same chips as exp6), so health vs no-health can be
              compared at each blockage level
 
-Every test also runs A*, health-aware A* and the deadline-optimal oracle (an exact dynamic
-programme, the best success rate any router can reach) on the same chips.
+Every test also runs A* and health-aware A* on the same chips, and computes the deadline-optimal
+upper bound (an exact dynamic programme: the best success probability any router can reach).
 
   python experiments/exp7_health_ppo.py --variant base --timesteps 20000 --eval_episodes 50  # smoke test
   python experiments/exp7_health_ppo.py --variant prob --seed 0                               # one run
@@ -229,20 +229,28 @@ def report():
     order = {v: i for i, v in enumerate(VARIANTS)}
     keys = sorted(groups, key=lambda k: (k[1], order.get(k[0], 99)))
     levels = [k for k in base["A*"] if k != "all"] or ["all"]
+    # the oracle's row is its exact success probability (its simulated runs share their random
+    # numbers with health-aware A*'s, so they come out almost identical)
+    ORACLE = "Deadline-optimal (upper bound)"
+    base[ORACLE] = base["Oracle success probability"]
+    mean = lambda d: {"success_mean": round(np.mean([d[lv] for lv in levels]), 3)} if len(levels) > 1 else {}
     rows = []
-    for m in ["A*", "Health-aware A*", "Deadline-optimal (oracle)"]:
+    for m in ["A*", "Health-aware A*", ORACLE]:
         rows.append({"method": m, "timesteps": "", "seeds": "", "health_map": "",
                      **{f"success_{lv}": round(base[m][lv]["success"], 3) for lv in levels},
-                     **({"success_mean": round(np.mean([base[m][lv]["success"] for lv in levels]), 3)}
-                        if len(levels) > 1 else {}), "std_over_seeds": ""})
+                     **mean({lv: base[m][lv]["success"] for lv in levels}),
+                     "std_over_seeds": "", "imitation_only": ""})
     for v, ts in keys:
         g = groups[(v, ts)]
         per_seed = np.array([[r["test"][lv]["success"] for lv in levels] for r in g])
+        imit = [np.mean([r["test_imitation_only"][lv]["success"] for lv in levels])
+                for r in g if "test_imitation_only" in r]
         rows.append({"method": f"PPO [{v}]", "timesteps": ts, "seeds": len(g),
                      "health_map": g[0]["config"]["health"],
                      **{f"success_{lv}": round(per_seed[:, i].mean(), 3) for i, lv in enumerate(levels)},
-                     **({"success_mean": round(per_seed.mean(), 3)} if len(levels) > 1 else {}),
-                     "std_over_seeds": round(per_seed.mean(1).std(), 3) if len(g) > 1 else ""})
+                     **mean({lv: per_seed[:, i].mean() for i, lv in enumerate(levels)}),
+                     "std_over_seeds": round(per_seed.mean(1).std(), 3) if len(g) > 1 else "",
+                     "imitation_only": round(np.mean(imit), 3) if imit else ""})
     csv_path = os.path.join(args.out, f"exp7_{args.setting}.csv")
     with open(csv_path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=rows[0].keys()); w.writeheader(); w.writerows(rows)
@@ -259,7 +267,7 @@ def report():
             "tab:green" if r["health_map"] else "tab:gray" for r in rows[3:]]
         bars = ax.bar(range(len(rows)), vals, yerr=err, color=cols, capsize=3)
         ax.bar_label(bars, fmt="%.3f", fontsize=7, padding=2)
-        ax.axhline(base["Deadline-optimal (oracle)"]["all"]["success"], color="black", ls="--", lw=0.8)
+        ax.axhline(base[ORACLE]["all"]["success"], color="black", ls="--", lw=0.8)
         ax.set_xticks(range(len(rows)), labels, rotation=60, ha="right", fontsize=7)
         ax.set_ylabel(f"Test success (deadline {SLACK_TEST}x)")
         lo = min(vals) - 0.1
@@ -271,14 +279,15 @@ def report():
     else:
         fig, ax = plt.subplots(figsize=(7.5, 4.5))
         x = [float(lv) * 100 for lv in levels]
-        for m, st in [("A*", "o-"), ("Health-aware A*", "s-"), ("Deadline-optimal (oracle)", "k--")]:
+        for m, st in [("A*", "o-"), ("Health-aware A*", "s-"), (ORACLE, "k--")]:
             ax.plot(x, [base[m][lv]["success"] for lv in levels], st, label=m, lw=1.2)
         for r in rows[3:]:
             ax.plot(x, [r[f"success_{lv}"] for lv in levels], "^-" if r["health_map"] else "v:",
                     label=f"{r['method']} ({r['seeds']} seed{'s' if r['seeds'] > 1 else ''})")
         ax.set_xlabel("Blocked electrodes (% of chip)"); ax.set_ylabel(f"Success rate (deadline {SLACK_TEST}x)")
         ax.set_xticks(x); ax.set_ylim(-0.02, 1.05); ax.grid(alpha=0.3); ax.legend(fontsize=7)
-        ax.set_title("12x12 soft blockage + worn good electrodes, 200 test chips per level", fontsize=9)
+        ax.set_title(f"12x12 soft blockage + worn good electrodes, {base['A*'][levels[0]]['n']} test chips per level",
+                     fontsize=9)
         fig.tight_layout(); fig.savefig(os.path.join(args.out, "exp7_blockage.png"), dpi=200); plt.close(fig)
 
     # learning curves (training episode success, env 0) of the first seed of each variant
@@ -296,7 +305,9 @@ def report():
         ax.plot(np.cumsum(lens)[w - 1:] * args.n_envs, np.convolve(s, np.ones(w) / w, "valid"),
                 label=f"{v} ({VARIANTS[v]['slack']}x limit)", lw=1)
     ax.set_xlabel("Training steps (approx.)"); ax.set_ylabel("Training episode success (rolling)")
-    ax.set_ylim(0, 1.02); ax.grid(alpha=0.3); ax.legend(fontsize=7)
+    ax.set_ylim(0, 1.02); ax.grid(alpha=0.3)
+    if keys:
+        ax.legend(fontsize=7)
     fig.tight_layout(); fig.savefig(os.path.join(args.out, f"exp7_{args.setting}_learning.png"), dpi=200)
     plt.close(fig)
     print("saved to", args.out)

@@ -170,14 +170,19 @@ A task **succeeds** if the droplet reaches its goal within a deadline of **1.5 �
 .
 ├── medaroute/
 │   ├── env.py                      MEDA chip simulator (Gymnasium environment)
-│   └── routers.py                  A*, health-aware A* and an executor that runs a plan on the chip
+│   ├── blockage.py                 binary good/blocked chip used by Experiments 6 and 7
+│   ├── routers.py                  A*, health-aware A*, cost-to-go maps, the deadline-optimal upper bound,
+│   │                               and an executor that runs a plan on the chip
+│   └── rl.py                       PPO building blocks: task wrapper, extra input channels, reward
+│                                   shaping, curriculum, imitation warm start (behaviour cloning + DAgger)
 ├── experiments/
 │   ├── exp1_visualize.py           one task: both routers' paths on a worn chip
 │   ├── exp2_degradation_levels.py  success rate / routing time vs degradation level
 │   ├── exp3_lifetime.py            success rate as one chip wears out over 3,000 tasks
 │   ├── exp3_wear_analysis.py       how each router wears the chip (dead electrodes, used electrodes)
 │   ├── exp4_ppo.py                 PPO agents with vs without the health map
-│   └── exp6_blockage_sweep.py      A*, health-aware A* and PPO vs blockage 10–90%
+│   ├── exp6_blockage_sweep.py      A*, health-aware A* and PPO vs blockage 10–90%
+│   └── exp7_health_ppo.py          improving the health-aware PPO agent (one run per variant and seed)
 ├── results/                        figures and CSV files produced by the experiments
 ├── tests/                          pytest checks for the chip, its dynamics and the routers
 ├── run_experiments.ipynb           Google Colab notebook that runs everything
@@ -201,7 +206,7 @@ pip install -r requirements.txt
 ### Check that everything works
 
 ```bash
-python -m pytest        # 20 tests, under a second
+python -m pytest        # 30 tests, a few seconds
 ```
 
 ### Reproduce the results
@@ -217,6 +222,9 @@ python -m pytest        # 20 tests, under a second
 | `python experiments/exp6_blockage_sweep.py --mode soft --worn` | Same, with the good electrodes also partly worn | ~3 min |
 | `python experiments/exp6_blockage_sweep.py --mode hard --worn` | Blocked electrodes are walls the droplet cannot cross | ~2 min |
 | `python experiments/exp6_blockage_sweep.py --size 12 --ppo --ppo_steps 500000` | Adds a PPO agent (12×12 chip) | ~20 min |
+| `python experiments/exp7_health_ppo.py --variant bc` | Trains and tests one Experiment 7 agent (here: imitation + PPO) | ~45 min |
+| `python experiments/exp7_health_ppo.py --setting blockage --variant bc --eval_episodes 100` | Same agent on blockage chips, tested at 10–90% | ~50 min |
+| `python experiments/exp7_health_ppo.py --report` | Collects all Experiment 7 runs into a table and figures | seconds |
 
 Figures and CSV files are written to `results/`. Every script takes command-line options
 (chip size, degradation fraction, number of chips, deadline slack, …); run it with `--help` to list them.

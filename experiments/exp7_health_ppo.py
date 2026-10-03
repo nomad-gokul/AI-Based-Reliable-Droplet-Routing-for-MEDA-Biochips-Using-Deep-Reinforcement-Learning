@@ -300,8 +300,12 @@ def report():
         err = [r["std_over_seeds"] or 0 for r in rows]
         cols = ["tab:blue", "tab:orange", "black"] + [
             "tab:green" if r["health_map"] else "tab:gray" for r in rows[3:]]
-        bars = ax.bar(range(len(rows)), vals, yerr=err, color=cols, capsize=3)
+        bars = ax.bar(range(len(rows)), vals, yerr=err if any(err) else None, color=cols, capsize=3)
         ax.bar_label(bars, fmt="%.3f", fontsize=7, padding=2)
+        imit = [(i, r["imitation_only"]) for i, r in enumerate(rows) if r["imitation_only"] != ""]
+        if imit:     # score of the imitation policy before PPO
+            ax.plot(*zip(*imit), "kD", ms=4, mfc="white", label="imitation only (before PPO)")
+            ax.legend(fontsize=7, loc="upper right")
         ax.axhline(base[ORACLE]["all"]["success"], color="black", ls="--", lw=0.8)
         ax.set_xticks(range(len(rows)), labels, rotation=60, ha="right", fontsize=7)
         ax.set_ylabel(f"Test success (deadline {SLACK_TEST}x)")

@@ -1,0 +1,18 @@
+{
+ "setting": "degraded",
+ "variant": "penalty",
+ "seed": 0,
+ "timesteps": 500000,
+ "config": {
+  "health": true,
+  "slack": 3.0,
+  "penalty": 0.1
+ },
+ "train_minutes": 27.8,
+ "test": {
+  "all": {
+   "success": 0.68,
+   "n": 500
+  }
+ }
+}

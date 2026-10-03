@@ -331,7 +331,7 @@ def report():
 
     # learning curves (training episode success, env 0) of the first seed of each variant
     fig, ax = plt.subplots(figsize=(7.5, 4.5))
-    for v, ts in keys:
+    for k, (v, ts) in enumerate(keys):
         log = os.path.join(RUNS, f"{args.setting}_{v}_s{groups[(v, ts)][0]['seed']}.monitor.csv")
         if not os.path.exists(log):
             continue
@@ -342,7 +342,8 @@ def report():
         lens = np.array([float(r["l"]) for r in recs])
         w = max(1, min(500, len(s) // 10))
         ax.plot(np.cumsum(lens)[w - 1:] * args.n_envs, np.convolve(s, np.ones(w) / w, "valid"),
-                label=f"{v} ({VARIANTS[v]['slack']}x limit)", lw=1)
+                label=f"{v} ({VARIANTS[v]['slack']}x limit)", lw=1, color=plt.cm.tab20(k % 20),
+                ls="--" if VARIANTS[v]["slack"] > 1.5 else "-")
     ax.set_xlabel("Training steps (approx.)"); ax.set_ylabel("Training episode success (rolling)")
     ax.set_ylim(0, 1.02); ax.grid(alpha=0.3)
     if keys:

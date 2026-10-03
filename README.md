@@ -36,7 +36,7 @@ Netaji Subhas University of Technology (NSUT) · Supervisor: Dr. Ankur Gupta
 > [!NOTE]
 > **The health-aware learned router now clearly beats the one without health.** An agent that imitates
 > health-aware A\* (behaviour cloning + DAgger) and sees the health map completes **74%** of 500 unseen test tasks,
-> against **67%** for the same agent without the health map and **64%** for plain A\*; plain PPO stays at 65–69%
+> against **66%** for the same agent without the health map and **64%** for plain A\*; plain PPO stays at 65–69%
 > however it is trained. It does not beat health-aware A\* (**79%**), and no router can by much: the exact
 > deadline-optimal router reaches only **79.6%**, so health-aware A\* is already near-optimal on this task
 > (see [Experiment 7](#experiment-7-improving-the-health-aware-ppo-agent)).
@@ -128,7 +128,7 @@ degrade and the ones no route uses.
 2. Lifetime results use dead-electrode count and used-electrode health instead of chip-wide mean health.
 3. **Make the health-aware PPO agent beat the PPO agent without health, and then health-aware A\*.**
    Done for the first part in [Experiment 7](#experiment-7-improving-the-health-aware-ppo-agent): with an imitation
-   warm start the agent that sees the health map is 7 points better than the one that doesn't. The second part is
+   warm start the agent that sees the health map is 8 points better than the one that doesn't (2 seeds each). The second part is
    not achievable on single-droplet deadline routing, where health-aware A\* is within 1 point of the best
    possible router; see [Next steps](#next-steps) for where a learned router can still win.
 
@@ -443,27 +443,28 @@ can beat it by a meaningful margin here; the realistic target is to match it.
 | 1.5× deadline + time-left channel (`time`) | ✓ | 0.690 |
 | … + move-success channel (`prob`) | ✓ | 0.654 |
 | … + health-based reward shaping (`shaping`) | ✓ | 0.676 |
-| … + curriculum from fresh to worn chips (`curriculum`) | ✓ | – |
+| … + curriculum from fresh to worn chips (`curriculum`) | ✓ | 0.684 |
 | **Imitation of health-aware A\*** (behaviour cloning + DAgger), then PPO |  |  |
-| Imitation only, no PPO | ✓ | 0.746 |
-| Imitation only, no PPO, without the health map (imitates plain A\*) |  | 0.666 |
+| Imitation only, no PPO | ✓ | 0.746 ± 0.000 (2 seeds) |
+| Imitation only, no PPO, without the health map (imitates plain A\*) |  | 0.662 ± 0.004 (2 seeds) |
 | Imitation + PPO at the normal learning rate (`bc`) | ✓ | 0.692 |
 | … with the cost-map channel too (`cost-bc`) | ✓ | 0.704 |
 | … without the health map (`bc-nohealth`) |  | 0.680 |
-| **Imitation + cautious fine-tuning, best checkpoint on validation chips (`bc-ft`)** | ✓ | **0.738** |
-| … without the health map (`bc-ft-nohealth`) |  | 0.666 |
+| **Imitation + cautious fine-tuning, best checkpoint on validation chips (`bc-ft`)** | ✓ | **0.740 ± 0.002 (2 seeds)** |
+| … without the health map (`bc-ft-nohealth`) |  | 0.662 ± 0.004 (2 seeds) |
 
 <p align="center">
   <img src="results/exp7/exp7_degraded.png" width="90%" alt="Experiment 7: test success of every variant">
 </p>
 
-- **Plain PPO stays at 0.65–0.69 whatever we change.** The reward terms, the 1.5× training deadline and the extra
-  input channels each move it by at most about 2 points, which is within the ±2-point noise of 500 test chips.
+- **Plain PPO stays at 0.65–0.69 whatever we change.** The reward terms, the 1.5× training deadline, the extra
+  input channels and the curriculum each move it by at most about 3 points, close to the ±2-point noise of
+  500 test chips and of a single seed.
   Seeing the health map still doesn't help plain PPO (0.670 with it vs 0.676 without).
 - **Imitating health-aware A\* is what makes the health map pay off.** Behaviour cloning alone reached 95% agreement
   with the expert but only 0.66 success, because it never saw the states that follow its own mistakes. With DAgger
   (the agent drives, health-aware A\* labels the states it reaches) the agent that sees the health map scores
-  **0.738** vs **0.666** without it: **+7 points, the first clear gain from the health
+  **0.740** vs **0.662** without it: **+8 points, the first clear gain from the health
   map**, and within 5 points of health-aware A\*.
 - **PPO fine-tuning at the normal learning rate undoes most of that gain** (0.746 → 0.692); PPO drifts back to its own
   plateau. Cautious fine-tuning (10× lower learning rate, no entropy bonus, keep the best checkpoint on 200
@@ -513,14 +514,14 @@ reservoir/mixer sites (`task_mode="ports"`).
 ## Next steps
 
 **Status of the health-aware PPO goal (Experiment 7).** The agent that sees the health map is now clearly better
-than the one that doesn't (74% vs 67%), but it does not beat health-aware A\* (79%), and on this task no router
+than the one that doesn't (74% vs 66%), but it does not beat health-aware A\* (79%), and on this task no router
 can by more than about 1 point.
 
 - [x] Add a health term to the reward: `degrade_penalty` and potential-based shaping with health-aware
       cost-to-go (`penalty`, `shaping`); each changes plain PPO by at most ~2 points
 - [x] Train with the same 1.5× deadline used at test time (`slack`, `time`); about +2 points with the time-left channel
 - [x] Give the agent health-aware A\*'s cost map as an extra input (`cost`, `cost-bc`): no gain on top of imitation
-- [x] Warm-start by imitating health-aware A\* (behaviour cloning + DAgger, `bc-ft`): the main gain, +7 points
+- [x] Warm-start by imitating health-aware A\* (behaviour cloning + DAgger, `bc-ft`): the main gain, +8 points
       over the no-health agent
 - [x] Curriculum over chip wear (`curriculum`); a curriculum over blockage percentage is supported
       (`--setting blockage`) but was not run

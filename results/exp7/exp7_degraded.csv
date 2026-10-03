@@ -1,0 +1,14 @@
+method,timesteps,seeds,health_map,success_all,std_over_seeds,imitation_only
+A*,,,,0.644,,
+Health-aware A*,,,,0.788,,
+Deadline-optimal (upper bound),,,,0.796,,
+PPO [base],500000,1,True,0.67,,
+PPO [base-nohealth],500000,1,False,0.676,,
+PPO [slack],500000,1,True,0.674,,
+PPO [time],500000,1,True,0.69,,
+PPO [prob],500000,1,True,0.654,,
+PPO [bc],500000,1,True,0.692,,0.746
+PPO [cost-bc],500000,1,True,0.704,,0.726
+PPO [bc-nohealth],500000,1,False,0.68,,0.666
+PPO [bc-ft],500000,1,True,0.738,,0.746
+PPO [bc-ft-nohealth],500000,1,False,0.666,,0.666

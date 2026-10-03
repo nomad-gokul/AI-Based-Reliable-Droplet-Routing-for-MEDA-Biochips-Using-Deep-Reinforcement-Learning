@@ -14,6 +14,9 @@ measured (see VARIANTS below):
   bc             warm start by imitating health-aware A* (plain A* for no-health agents):
                  behaviour cloning, then DAgger rounds
   curriculum     start on easy chips, reach the target difficulty halfway through training
+  select         keep the checkpoint that scores best on separate validation chips (scored
+                 before training, every 50k steps and at the end); used with a lower learning
+                 rate and no entropy bonus to fine-tune an imitation policy (bc-ft)
 
 Settings (--setting):
   degraded : Experiment 4's task. 12x12 chips, 50% degradable, pre-aged; the same 500 test chips
@@ -41,6 +44,7 @@ from medaroute.blockage import BlockageEnv
 from medaroute.routers import ROUTERS, run_router, run_deadline_optimal, deadline_optimal, astar
 
 PPO_KW = dict(n_steps=256, batch_size=512, n_epochs=4, learning_rate=3e-4, gamma=0.99, ent_coef=0.01)
+FT_KW = dict(learning_rate=3e-5, ent_coef=0.0, clip_range=0.1)   # fine-tuning an imitation policy
 T = ("time",)
 TP = ("time", "prob")
 TPC = ("time", "prob", "cost")
@@ -61,6 +65,9 @@ VARIANTS = {
     "bc":               dict(health=True, slack=1.5, features=TP, bc=True),
     "cost-bc":          dict(health=True, slack=1.5, features=TPC, bc=True),
     "bc-nohealth":      dict(health=False, slack=1.5, features=T, bc=True),
+    # imitation, then cautious PPO fine-tuning that keeps the best checkpoint on validation chips
+    "bc-ft":            dict(health=True, slack=1.5, features=TP, bc=True, select=True, ppo=FT_KW),
+    "bc-ft-nohealth":   dict(health=False, slack=1.5, features=T, bc=True, select=True, ppo=FT_KW),
 }
 LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
@@ -120,6 +127,25 @@ def test_chips():
             yield b, e
 
 
+def val_chips():
+    """Validation chips for checkpoint selection: same distribution as the test chips,
+    different seeds (never the test chips)."""
+    if args.setting == "degraded":
+        for i in range(200):
+            e = MEDARoutingEnv(SIZE, SIZE, frac_degradable=0.5, pre_age_max=15)
+            e.reset(seed=888_000 + i, options={"new_chip": True})
+            e.max_steps = math.ceil(SLACK_TEST * e._cheb(e.pos, e.goal))
+            yield None, e
+        return
+    for i in range(225):
+        b = LEVELS[i % len(LEVELS)]
+        e = BlockageEnv(b, "soft", worn=True, height=SIZE, width=SIZE, droplet_radius=1,
+                        observe_health=False, min_task_distance=max(3, SIZE // 6))
+        e.reset(seed=777_000 + i, options={"new_chip": True})
+        e.max_steps = math.ceil(SLACK_TEST * max(1, len(astar(e, e.pos, e.goal))))
+        yield b, e
+
+
 def view(e, health):
     """The same chip and task, observed with or without the health channel."""
     import gymnasium as gym
@@ -163,7 +189,7 @@ def train_and_test():
     from stable_baselines3 import PPO
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv
-    from medaroute.rl import SmallCNN, RoutingTask, CurriculumCallback, imitate, run_agent
+    from medaroute.rl import SmallCNN, RoutingTask, CurriculumCallback, BestCheckpoint, imitate, run_agent
     torch.set_num_threads(args.threads)
     cfg = dict(VARIANTS[args.variant])
     feats = tuple(cfg.get("features", ()))
@@ -190,7 +216,8 @@ def train_and_test():
         model = PPO.load(model_path, device="cpu")
     else:
         venv = DummyVecEnv([make(r, os.path.join(RUNS, name) if r == 0 else None) for r in range(args.n_envs)])
-        model = PPO("MlpPolicy", venv, device="cpu", seed=args.seed, verbose=0, **PPO_KW,
+        model = PPO("MlpPolicy", venv, device="cpu", seed=args.seed, verbose=0,
+                    **{**PPO_KW, **cfg.get("ppo", {})},
                     policy_kwargs=dict(features_extractor_class=SmallCNN,
                                        features_extractor_kwargs=dict(features_dim=256),
                                        net_arch=dict(pi=[128], vf=[128])))
@@ -200,9 +227,14 @@ def train_and_test():
                     dagger_rounds=args.dagger_rounds, gamma=PPO_KW["gamma"], seed=args.seed)
             bc_test = test(model)                     # the imitation policy before any RL
             print("after imitation:", json.dumps(bc_test), flush=True)
-        cb = CurriculumCallback(args.timesteps) if cfg.get("curriculum") else None
+        cbs = [CurriculumCallback(args.timesteps)] if cfg.get("curriculum") else []
+        if cfg.get("select"):
+            val = list(val_chips())
+            select = BestCheckpoint(lambda m: np.mean(
+                [run_agent(view(e, cfg["health"]), m, feats)["success"] for _, e in val]))
+            cbs.append(select)
         print(f"training {name} for {args.timesteps} steps ...", flush=True)
-        model.learn(total_timesteps=args.timesteps, callback=cb)
+        model.learn(total_timesteps=args.timesteps, callback=cbs or None)
         model.save(model_path)
     train_min = (time.time() - t0) / 60
 
@@ -212,6 +244,9 @@ def train_and_test():
            "train_minutes": round(train_min, 1), "test": test(model)}
     if bc_test:
         out["test_imitation_only"] = bc_test
+    if cfg.get("select") and not args.eval_only:
+        out["validation"] = [[int(t), round(float(v), 3)] for t, v in select.history]
+        out["kept_step"] = int(select.best_step)
     json.dump(out, open(os.path.join(RUNS, name + ".json"), "w"), indent=1)
     print(json.dumps(out["test"]))
 

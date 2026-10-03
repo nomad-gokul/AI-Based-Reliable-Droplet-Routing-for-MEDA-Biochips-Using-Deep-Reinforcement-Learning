@@ -148,6 +148,41 @@ class CurriculumCallback(BaseCallback):
         return True
 
 
+class BestCheckpoint(BaseCallback):
+    """Score the policy with `score_fn(model)` (on validation chips, never the test chips)
+    before training, every `freq` steps and at the end, and restore the best-scoring weights
+    when training ends. After an imitation warm start this keeps PPO fine-tuning from ending
+    worse than the policy it started from."""
+    def __init__(self, score_fn, freq=50_000):
+        super().__init__()
+        self.score_fn, self.freq = score_fn, freq
+        self.best, self.best_step, self.best_state, self.history, self._next = -1.0, 0, None, [], 0
+
+    def _check(self):
+        score = self.score_fn(self.model)
+        self.history.append((self.num_timesteps, score))
+        print(f"  validation at {self.num_timesteps} steps: {score:.3f}", flush=True)
+        if score > self.best:
+            self.best, self.best_step = score, self.num_timesteps
+            self.best_state = {k: v.detach().clone() for k, v in self.model.policy.state_dict().items()}
+
+    def _on_training_start(self):
+        self._check()
+        self._next = self.freq
+
+    def _on_step(self):
+        if self.num_timesteps >= self._next:
+            self._check()
+            self._next += self.freq
+        return True
+
+    def _on_training_end(self):
+        if self.history[-1][0] != self.num_timesteps:
+            self._check()
+        self.model.policy.load_state_dict(self.best_state)
+        print(f"  kept the weights from {self.best_step} steps (validation {self.best:.3f})", flush=True)
+
+
 # --------------------------------------------------------- imitation warm start
 def expert_mask(env, dist, tol=1e-9):
     """Boolean mask of the expert's optimal actions: every valid move to a neighbour with

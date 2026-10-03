@@ -1,0 +1,28 @@
+{
+ "setting": "degraded",
+ "variant": "bc",
+ "seed": 0,
+ "timesteps": 500000,
+ "config": {
+  "health": true,
+  "slack": 1.5,
+  "features": [
+   "time",
+   "prob"
+  ],
+  "bc": true
+ },
+ "train_minutes": 44.6,
+ "test": {
+  "all": {
+   "success": 0.692,
+   "n": 500
+  }
+ },
+ "test_imitation_only": {
+  "all": {
+   "success": 0.746,
+   "n": 500
+  }
+ }
+}

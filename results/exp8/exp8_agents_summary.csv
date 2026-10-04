@@ -1,0 +1,9 @@
+router,protect,chips,overall_success,tasks_before_first_failure,life_90,life_70,life_50,total_steps,final_dead_frac,final_weak_frac,final_mean_health_used,electrodes_used,overall_success_std
+A*,0,10,0.67,130.9,277.0,487.0,726.9,9275.7,0.2,0.286,0.633,110.5,0.099
+Health-aware A*,0,10,0.782,190.6,385.4,674.0,920.4,8921.7,0.181,0.302,0.661,122.7,0.077
+Wear-aware A*,0,10,0.783,149.0,352.0,696.2,921.9,8979.1,0.179,0.285,0.67,121.1,0.078
+"PPO, Exp. 4 recipe",0,10,0.632,113.0,241.0,446.2,628.1,9390.7,0.183,0.258,0.646,104.2,0.124
+"Imitation + fine-tuning, health map (seed 0)",0,10,0.738,144.1,326.8,577.1,803.4,9102.3,0.192,0.299,0.66,122.5,0.084
+"Imitation + fine-tuning, health map (seed 1)",0,10,0.739,143.9,317.2,604.2,830.2,9127.2,0.188,0.301,0.664,123.7,0.079
+"Imitation + fine-tuning, no health map (seed 0)",0,10,0.64,124.8,249.1,441.1,646.6,9380.4,0.186,0.265,0.647,106.7,0.111
+"Imitation + fine-tuning, no health map (seed 1)",0,10,0.625,120.0,242.2,442.3,625.7,9430.5,0.182,0.26,0.645,105.3,0.121

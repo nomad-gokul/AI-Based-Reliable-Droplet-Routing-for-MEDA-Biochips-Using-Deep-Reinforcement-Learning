@@ -1,0 +1,5 @@
+router,protect,chips,overall_success,tasks_before_first_failure,life_90,life_70,life_50,total_steps,final_dead_frac,final_weak_frac,final_mean_health_used,electrodes_used,overall_success_std
+A*,0,10,0.472,241.3,453.1,682.2,1007.2,60475.1,0.159,0.217,0.597,471.9,0.05
+Health-aware A*,0,10,0.716,396.7,752.5,1323.8,2305.9,57018.6,0.141,0.257,0.666,659.4,0.037
+Wear-aware A*,0,10,0.715,284.9,715.8,1395.7,2311.3,57144.3,0.139,0.252,0.667,649.1,0.041
+"Wear-aware A* (true decay, analysis)",0,10,0.722,305.2,820.6,1410.8,2374.8,56814.6,0.135,0.251,0.669,650.6,0.039

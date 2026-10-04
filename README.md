@@ -175,10 +175,11 @@ A task **succeeds** if the droplet reaches its goal within a deadline of **1.5 �
 ├── medaroute/
 │   ├── env.py                      MEDA chip simulator (Gymnasium environment)
 │   ├── blockage.py                 binary good/blocked chip used by Experiments 6 and 7
-│   ├── routers.py                  A*, health-aware A*, cost-to-go maps, the deadline-optimal upper bound,
-│   │                               and an executor that runs a plan on the chip
-│   └── rl.py                       PPO building blocks: task wrapper, extra input channels, reward
-│                                   shaping, curriculum, imitation warm start (behaviour cloning + DAgger)
+│   ├── routers.py                  A*, health-aware A*, wear-aware A*, cost-to-go maps, the deadline-optimal
+│   │                               upper bound, and an executor that runs a plan on the chip
+│   ├── rl.py                       PPO building blocks: task wrapper, extra input channels, reward
+│   │                               shaping, curriculum, imitation warm start (behaviour cloning + DAgger)
+│   └── lifetime.py                 chip-lifetime benchmark: many tasks on one wearing chip, wear over time
 ├── experiments/
 │   ├── exp1_visualize.py           one task: both routers' paths on a worn chip
 │   ├── exp2_degradation_levels.py  success rate / routing time vs degradation level
@@ -186,7 +187,8 @@ A task **succeeds** if the droplet reaches its goal within a deadline of **1.5 �
 │   ├── exp3_wear_analysis.py       how each router wears the chip (dead electrodes, used electrodes)
 │   ├── exp4_ppo.py                 PPO agents with vs without the health map
 │   ├── exp6_blockage_sweep.py      A*, health-aware A* and PPO vs blockage 10–90%
-│   └── exp7_health_ppo.py          improving the health-aware PPO agent (one run per variant and seed)
+│   ├── exp7_health_ppo.py          improving the health-aware PPO agent (one run per variant and seed)
+│   └── exp8_lifetime.py            chip-lifetime benchmark: wear-aware A*, the fixed sites, learned agents
 ├── results/                        figures and CSV files produced by the experiments
 ├── tests/                          pytest checks for the chip, its dynamics and the routers
 ├── run_experiments.ipynb           Google Colab notebook that runs everything
@@ -210,7 +212,7 @@ pip install -r requirements.txt
 ### Check that everything works
 
 ```bash
-python -m pytest        # 30 tests, a few seconds
+python -m pytest        # 38 tests, a few seconds
 ```
 
 ### Reproduce the results
@@ -229,6 +231,9 @@ python -m pytest        # 30 tests, a few seconds
 | `python experiments/exp7_health_ppo.py --variant bc-ft` | Trains and tests the main Experiment 7 agent (imitation + cautious PPO fine-tuning) | ~50 min |
 | `python experiments/exp7_health_ppo.py --setting blockage --variant bc-ft --eval_episodes 100` | Same agent on blockage chips, tested at 10–90% | ~55 min |
 | `python experiments/exp7_health_ppo.py --report` | Collects all Experiment 7 runs into a table and figures | seconds |
+| `python experiments/exp8_lifetime.py --part routers` | Lifetime benchmark: A\*, health-aware A\*, wear-aware A\* (10 chips × 3,000 tasks) | ~4 min |
+| `python experiments/exp8_lifetime.py --part sites` | How much lifetime is lost at the fixed sites | ~4 min |
+| `python experiments/exp8_lifetime.py --part agents` | Experiment 7's agents on a 12×12 lifetime benchmark (needs their models) | ~5 min |
 
 Figures and CSV files are written to `results/`. Every script takes command-line options
 (chip size, degradation fraction, number of chips, deadline slack, …); run it with `--help` to list them.
@@ -490,6 +495,70 @@ can beat it by a meaningful margin here; the realistic target is to match it.
   blocked, which is most of what matters, and one network has to cover 0–90% blockage. The upper bound again
   stays within a few points of health-aware A\* at every level.
 
+### Experiment 8: chip-lifetime benchmark
+
+Can a router keep the chip usable for longer by planning for the wear its own routes cause? A fresh 30×30 chip
+(50% degradable) runs 3,000 tasks between 6 fixed sites with a 1.5× deadline: the same 10 chips and task sequences
+as Experiment 3, now run through the reusable benchmark in [`medaroute/lifetime.py`](medaroute/lifetime.py).
+"Usable life" is the number of tasks until the rolling success rate over 100 tasks first drops below 70%.
+
+**Wear-aware A\*** ([`medaroute/routers.py`](medaroute/routers.py)) charges each position for the wear the droplet
+will cause there as well as for its expected time. The controller drives every electrode, so it knows how often each
+one has been actuated; after k wear events an electrode's health is decay^k, so its decay factor can be estimated as
+health^(1/k). Electrodes that are still at full health after a wear event are recognised as never degrading, and
+routes are steered onto them. A time budget lets it detour only when the deadline leaves slack. Its settings were
+chosen on 4 separate validation chips.
+
+| Router (10 chips × 3,000 tasks) | Overall success | Usable life (tasks) | Blocked electrodes at the end |
+|---|:---:|:---:|:---:|
+| A\* | 0.472 ± 0.050 | 682 | 15.9% |
+| Health-aware A\* | 0.716 ± 0.037 | 1324 | 14.1% |
+| **Wear-aware A\*** | 0.715 ± 0.041 | 1396 | 13.9% |
+| Wear-aware A\* with the true decay factors (analysis only) | 0.722 ± 0.039 | 1411 | 13.5% |
+
+<p align="center"><img src="results/exp8/exp8_routers.png" width="95%" alt="Lifetime: rolling success and blocked electrodes over time"></p>
+
+- **Wear-aware routing barely changes chip life.** Wear-aware A\* matches health-aware A\* (0.715 vs 0.716), and even
+  the version that knows every electrode's true decay factor gains less than 1 point (0.722). The blocked percentage
+  grows almost identically for all three (right).
+
+**Why: the chip wears out where no router can avoid it.** Every task starts and ends on one of the 6 sites, so the
+electrodes at and around the sites are used by every route. Making them wear-free shows how much of the lost
+lifetime they account for (health-aware A\*, same chips):
+
+| Electrodes made wear-free | Overall success | Usable life (tasks) |
+|---|:---:|:---:|
+| None (normal chip) | 0.716 | 1324 |
+| The sites' own electrodes (within 1 cell) | 0.879 | 2655 |
+| Within 2 cells of each site | 0.956 | 3000 |
+| Within 4 cells of each site | 0.998 | 3000 |
+
+<p align="center"><img src="results/exp8/exp8_sites.png" width="80%" alt="Lifetime vs electrodes made wear-free around the sites"></p>
+
+- Of the success health-aware A\* loses over 3,000 tasks (1 − 0.716), the sites' own electrodes (r = 1), which no
+  route can avoid, account for 57%, and the ring around them (r = 2), which routes could at most spread over,
+  for another 27%.
+- So on this benchmark a better *router* has little room. The lever is *where the sites are*: on a MEDA chip
+  mixing can happen anywhere, so moving mixer sites off worn electrodes is a scheduling decision that routing
+  cannot make.
+
+**The learned agents of Experiment 7** (trained on single tasks, not for lifetime), on a 12×12 version of the
+benchmark with 4 sites (10 chips × 1,000 tasks):
+
+| Router | Overall success | Usable life (tasks) |
+|---|:---:|:---:|
+| A\* | 0.670 | 487 |
+| Health-aware A\* | 0.782 | 674 |
+| Wear-aware A\* | 0.783 | 696 |
+| PPO, Experiment 4 recipe | 0.632 | 446 |
+| Imitation + fine-tuning, **with** health map (2 seeds) | 0.738 | 591 |
+| Imitation + fine-tuning, without health map (2 seeds) | 0.633 | 442 |
+
+<p align="center"><img src="results/exp8/exp8_agents.png" width="60%" alt="Experiment 7 agents on the lifetime benchmark"></p>
+
+- The ranking of Experiment 7 carries over to a wearing chip: the agent that sees the health map stays about
+  10 points ahead of the same agent without it, and about 4 points behind health-aware A\*.
+
 ---
 
 ## Simulator details
@@ -532,12 +601,15 @@ can by more than about 1 point.
 one task and a fixed deadline, because it plans on the health the chip has *now*. It cannot plan for the wear its
 own routes cause, nor for several droplets sharing the chip. Those are the objectives to give the RL agent next:
 
-- [ ] Evaluate and train the learned router on the chip-lifetime benchmark (Experiment 3), with reward for
-      keeping the chip usable over many tasks
-- [ ] Add a wear-levelling term to health-aware A\* (penalise electrodes by how often they are used), as a
-      stronger lifetime baseline
+- [x] Lifetime benchmark with wear tracked over time, and a stronger lifetime baseline: wear-aware A\*, which
+      charges routes for the wear they cause (Experiment 8)
+- [x] Evaluate the learned router on the lifetime benchmark (Experiment 8): same ranking as Experiment 7
+- [x] Track how the blocked percentage grows over time for each router (Experiment 8)
+- [ ] ~~Train the learned router with a lifetime reward~~: on this benchmark even wear-aware routing that knows the
+      true decay factors gains under 1 point, so there is little for a lifetime-trained router to find
+- [ ] **Move the mixer sites as the chip wears** (Experiment 8 shows most of the lifetime is lost at the fixed
+      sites): a site-relocation policy, classical or learned, on the lifetime benchmark
 - [ ] Multiple droplets routed at once (Liang et al.'s multi-agent setting)
-- [ ] Track how the blocked percentage grows over time in the lifetime experiment, for each router
 - [ ] Close the remaining 4-point gap of the imitation agent (larger network, more DAgger data), and train
       separate agents per blockage range
 

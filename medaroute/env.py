@@ -21,6 +21,8 @@ Deliberate differences from meda-env (documented for the report):
   * health is updated after every step, so wear accumulates within a task
   * `pre_age_max` optionally starts a chip already partly worn, and
     `task_mode="ports"` draws tasks between fixed reservoir/mixer sites
+  * `actuations` counts every actuation of every electrode since the chip was
+    made (the controller drives the electrodes, so it knows these counts)
 """
 from __future__ import annotations
 
@@ -81,6 +83,7 @@ class MEDARoutingEnv(gym.Env):
         lo, hi = self.decay_range
         self.decay[degradable] = rng.uniform(lo, hi, degradable.sum())
         self.usage = np.zeros((self.H, self.W), dtype=np.int64)
+        self.actuations = np.zeros((self.H, self.W), dtype=np.int64)   # total, never reset
         if self.pre_age_max > 0:
             k = rng.integers(0, self.pre_age_max + 1, (self.H, self.W))
             self.health = self.decay ** k
@@ -92,11 +95,15 @@ class MEDARoutingEnv(gym.Env):
     def _make_ports(self):
         """Fixed sites (reservoirs on the edges, mixers inside)."""
         rng, r = self.np_random, self.r
-        ports = []
+        ports, misses = [], 0
         while len(ports) < self.n_ports:
             p = (int(rng.integers(r, self.H - r)), int(rng.integers(r, self.W - r)))
             if all(self._cheb(p, q) >= self.min_task_distance for q in ports):
                 ports.append(p)
+            else:
+                misses += 1
+                if misses >= 1000:      # the sites so far leave no room: start again
+                    ports, misses = [], 0
         return ports
 
     # ------------------------------------------------------------- geometry
@@ -185,6 +192,7 @@ class MEDARoutingEnv(gym.Env):
         """Electrodes under the droplet are actuated; degrade past threshold."""
         ys, xs = self._fp(pos)
         self.usage[ys, xs] += 1
+        self.actuations[ys, xs] += 1
         hit = self.usage >= self.usage_threshold
         if hit.any():
             self.health[hit] *= self.decay[hit]

@@ -1,0 +1,22 @@
+{
+ "setting": "degraded",
+ "variant": "curriculum",
+ "seed": 0,
+ "timesteps": 500000,
+ "config": {
+  "health": true,
+  "slack": 1.5,
+  "features": [
+   "time",
+   "prob"
+  ],
+  "curriculum": true
+ },
+ "train_minutes": 29.8,
+ "test": {
+  "all": {
+   "success": 0.684,
+   "n": 500
+  }
+ }
+}

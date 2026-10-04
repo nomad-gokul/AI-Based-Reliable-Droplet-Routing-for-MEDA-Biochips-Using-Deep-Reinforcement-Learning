@@ -1,0 +1,26 @@
+{
+ "A*": {
+  "all": {
+   "success": 0.644,
+   "n": 500
+  }
+ },
+ "Health-aware A*": {
+  "all": {
+   "success": 0.788,
+   "n": 500
+  }
+ },
+ "Deadline-optimal (oracle)": {
+  "all": {
+   "success": 0.788,
+   "n": 500
+  }
+ },
+ "Oracle success probability": {
+  "all": {
+   "success": 0.796241996222786,
+   "n": 500
+  }
+ }
+}

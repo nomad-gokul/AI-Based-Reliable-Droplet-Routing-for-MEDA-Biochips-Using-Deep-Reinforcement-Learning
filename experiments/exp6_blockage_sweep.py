@@ -41,7 +41,8 @@ import matplotlib.pyplot as plt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.environ.get("REPO", os.path.join(HERE, "..")))
-from medaroute.env import MEDARoutingEnv, ACTIONS
+from medaroute.env import ACTIONS
+from medaroute.blockage import BlockageEnv
 from medaroute.routers import ROUTERS, run_router, astar
 
 p = argparse.ArgumentParser()
@@ -61,57 +62,6 @@ if args.radius is None:
     args.radius = 1 if args.mode == "soft" else 0
 os.makedirs(args.out, exist_ok=True)
 NO_DEADLINE = 10.0
-
-
-class BlockageEnv(MEDARoutingEnv):
-    """Binary chip: each electrode is blocked with probability `blockage`
-    (a float, or a (lo, hi) range sampled per chip for training)."""
-    def __init__(self, blockage, mode="soft", worn=False, **kw):
-        if worn:
-            kw.update(frac_degradable=0.5, pre_age_max=15)
-        else:
-            kw.update(frac_degradable=0.0, pre_age_max=0)
-        super().__init__(**kw)
-        self.blockage, self.mode, self.worn = blockage, mode, worn
-
-    def new_chip(self):
-        rng = self.np_random
-        b = self.blockage if np.isscalar(self.blockage) else rng.uniform(*self.blockage)
-        self.blocked = np.zeros((self.H, self.W), bool)   # so valid() works inside new_chip
-        super().new_chip()
-        self.blocked = rng.random((self.H, self.W)) < b
-        self.health = np.where(self.blocked, 0.0, self.health)
-        if self.worn:     # good electrodes are also partly worn (repo's decay model)
-            self.health = np.where(self.blocked, 0.0, self.health)
-        if self.mode == "hard":
-            self._free = [(y, x) for y in range(self.H) for x in range(self.W) if self.valid((y, x))]
-
-    # hard mode: a centre is usable only if its footprint has no blocked cell
-    def valid(self, pos):
-        if not super().valid(pos):
-            return False
-        if self.mode == "hard":
-            ys, xs = self._fp(pos)
-            return not self.blocked[ys, xs].any()
-        return True
-
-    def sample_task(self):
-        if self.mode == "soft":
-            return super().sample_task()
-        rng, free = self.np_random, self._free
-        if len(free) < 2:
-            return None, None
-        for _ in range(200):
-            s, g = (free[i] for i in rng.choice(len(free), 2, replace=False))
-            if self._cheb(s, g) >= self.min_task_distance:
-                return s, g
-        s, g = (free[i] for i in rng.choice(len(free), 2, replace=False))
-        return s, g
-
-    def _obs(self):
-        obs = super()._obs()
-        obs[2] = self.blocked            # channel 2: blocked electrodes
-        return obs
 
 
 def shortest_len(env):
